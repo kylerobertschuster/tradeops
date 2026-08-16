@@ -14,28 +14,37 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/api";
-import { sma, ema, bollinger } from "@/lib/indicators";
+import { sma, ema, bollinger, rsi, macd, vwap } from "@/lib/indicators";
 import { findSymbol } from "@/lib/symbols";
 import { formatPrice, formatPct, formatCompact } from "@/lib/format";
 import type { Candle, Interval, Ticker } from "@/lib/types";
 
-type IndKey = "volume" | "sma20" | "sma50" | "ema20" | "ema50" | "bb";
+type IndKey = "volume" | "sma20" | "sma50" | "ema20" | "ema50" | "bb" | "vwap" | "rsi" | "macd";
 
-const IND_LABELS: Record<IndKey, string> = {
-  volume: "Volume",
-  sma20: "SMA 20",
-  sma50: "SMA 50",
-  ema20: "EMA 20",
-  ema50: "EMA 50",
-  bb: "Bollinger Bands (20, 2)",
-};
-
-const OVERLAY_COLORS: Partial<Record<IndKey, string>> = {
-  sma20: "#2962ff",
-  sma50: "#ff9800",
-  ema20: "#26a69a",
-  ema50: "#ab47bc",
-};
+const IND_MENU: { group: string; items: { key: IndKey; label: string }[] }[] = [
+  {
+    group: "Overlays",
+    items: [
+      { key: "sma20", label: "SMA 20" },
+      { key: "sma50", label: "SMA 50" },
+      { key: "ema20", label: "EMA 20" },
+      { key: "ema50", label: "EMA 50" },
+      { key: "vwap", label: "VWAP" },
+      { key: "bb", label: "Bollinger Bands (20, 2)" },
+    ],
+  },
+  {
+    group: "Oscillators",
+    items: [
+      { key: "rsi", label: "RSI 14" },
+      { key: "macd", label: "MACD (12, 26, 9)" },
+    ],
+  },
+  {
+    group: "Volume",
+    items: [{ key: "volume", label: "Volume" }],
+  },
+];
 
 const INTERVAL_LABEL: Record<Interval, string> = {
   "1m": "1m",
@@ -70,6 +79,9 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
     ema20: true,
     ema50: false,
     bb: false,
+    vwap: false,
+    rsi: false,
+    macd: false,
   });
 
   const info = findSymbol(symbol);
@@ -123,7 +135,7 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       },
       rightPriceScale: {
         borderColor: "#2a2e39",
-        scaleMargins: { top: 0.08, bottom: 0.22 },
+        scaleMargins: { top: 0.05, bottom: 0.78 },
       },
       timeScale: { borderColor: "#2a2e39", timeVisible: true, secondsVisible: false },
     });
@@ -178,12 +190,18 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
     }
   }, [candles, symbol, interval]);
 
-  // Sync indicator series
+  // Sync indicators + layout
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || candles.length === 0) return;
 
     const times = candles.map((c) => c.time as UTCTimestamp);
+    const closes = candles.map((c) => c.close);
+    type LinePoint = { time: UTCTimestamp; value: number };
+    const lineData = (values: (number | null)[]): LinePoint[] =>
+      values
+        .map((v, i) => ({ time: times[i], value: v }))
+        .filter((p): p is LinePoint => p.value != null);
 
     const remove = (key: string) => {
       const s = seriesRef.current[key];
@@ -193,36 +211,60 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       }
     };
 
-    const ensureLine = (key: string, color: string, lineWidth: 1 | 2 | 3 | 4 = 2, dashed = false) => {
+    const ensureLine = (
+      key: string,
+      color: string,
+      opts: { lineWidth?: 1 | 2 | 3 | 4; dashed?: boolean; scaleId?: string } = {},
+    ) => {
       let s = seriesRef.current[key] as ISeriesApi<"Line"> | undefined;
       if (!s) {
         s = chart.addSeries(LineSeries, {
           color,
-          lineWidth,
-          lineStyle: dashed ? LineStyle.Dashed : LineStyle.Solid,
+          lineWidth: opts.lineWidth ?? 2,
+          lineStyle: opts.dashed ? LineStyle.Dashed : LineStyle.Solid,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
+          ...(opts.scaleId ? { priceScaleId: opts.scaleId } : {}),
         }) as ISeriesApi<"Line">;
         seriesRef.current[key] = s;
       }
       return s;
     };
 
-    const setLineData = (key: string, color: string, values: (number | null)[], dashed = false) => {
+    const setOverlay = (key: string, color: string, values: (number | null)[], dashed = false) => {
       if (!inds[key as IndKey]) {
         remove(key);
         return;
       }
-      const s = ensureLine(key, color, dashed ? 1 : 2, dashed);
-      s.setData(
-        values
-          .map((v, i) => ({ time: times[i], value: v }))
-          .filter((p) => p.value != null) as { time: UTCTimestamp; value: number }[],
-      );
+      ensureLine(key, color, { dashed }).setData(lineData(values));
     };
 
-    // Volume (separate scale)
+    // --- Price-scale overlays ---
+    setOverlay("sma20", "#2962ff", sma(closes, 20));
+    setOverlay("sma50", "#ff9800", sma(closes, 50));
+    setOverlay("ema20", "#26a69a", ema(closes, 20));
+    setOverlay("ema50", "#ab47bc", ema(closes, 50));
+    setOverlay("vwap", "#ec407a", vwap(candles));
+
+    if (inds.bb) {
+      const bb = bollinger(closes, 20, 2);
+      ensureLine("bb_up", "#787b86", { lineWidth: 1, dashed: true }).setData(
+        lineData(bb.map((b) => (b ? b.upper : null))),
+      );
+      ensureLine("bb_mid", "#787b86", { lineWidth: 1, dashed: true }).setData(
+        lineData(bb.map((b) => (b ? b.middle : null))),
+      );
+      ensureLine("bb_low", "#787b86", { lineWidth: 1, dashed: true }).setData(
+        lineData(bb.map((b) => (b ? b.lower : null))),
+      );
+    } else {
+      remove("bb_up");
+      remove("bb_mid");
+      remove("bb_low");
+    }
+
+    // --- Volume (separate scale) ---
     if (inds.volume) {
       let v = seriesRef.current["volume"] as ISeriesApi<"Histogram"> | undefined;
       if (!v) {
@@ -230,7 +272,6 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
           priceFormat: { type: "volume" },
           priceScaleId: "volume",
         }) as ISeriesApi<"Histogram">;
-        chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
         seriesRef.current["volume"] = v;
       }
       v.setData(
@@ -244,23 +285,82 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       remove("volume");
     }
 
-    const closes = candles.map((c) => c.close);
-    setLineData("sma20", OVERLAY_COLORS.sma20!, sma(closes, 20));
-    setLineData("sma50", OVERLAY_COLORS.sma50!, sma(closes, 50));
-    setLineData("ema20", OVERLAY_COLORS.ema20!, ema(closes, 20));
-    setLineData("ema50", OVERLAY_COLORS.ema50!, ema(closes, 50));
-
-    if (inds.bb) {
-      const bb = bollinger(closes, 20, 2);
-      setLineData("bb_up", "#787b86", bb.map((b) => (b ? b.upper : null)), true);
-      setLineData("bb_mid", "#787b86", bb.map((b) => (b ? b.middle : null)), true);
-      setLineData("bb_low", "#787b86", bb.map((b) => (b ? b.lower : null)), true);
+    // --- RSI (separate scale) ---
+    if (inds.rsi) {
+      let s = seriesRef.current["rsi"] as ISeriesApi<"Line"> | undefined;
+      if (!s) {
+        s = chart.addSeries(LineSeries, {
+          color: "#7e57c2",
+          lineWidth: 1 as 1 | 2 | 3 | 4,
+          priceScaleId: "rsi",
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        }) as ISeriesApi<"Line">;
+        s.createPriceLine({ price: 70, color: "#f23645", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "" });
+        s.createPriceLine({ price: 30, color: "#089981", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "" });
+        seriesRef.current["rsi"] = s;
+      }
+      s.setData(lineData(rsi(closes, 14)));
     } else {
-      remove("bb_up");
-      remove("bb_mid");
-      remove("bb_low");
+      remove("rsi");
     }
+
+    // --- MACD (separate scale) ---
+    if (inds.macd) {
+      const m = macd(closes);
+      ensureLine("macd_line", "#2962ff", { scaleId: "macd" }).setData(lineData(m.macd));
+      ensureLine("macd_signal", "#ff9800", { scaleId: "macd" }).setData(lineData(m.signal));
+      let h = seriesRef.current["macd_hist"] as ISeriesApi<"Histogram"> | undefined;
+      if (!h) {
+        h = chart.addSeries(HistogramSeries, {
+          priceScaleId: "macd",
+          priceFormat: { type: "price", precision: 6, minMove: 0.000001 },
+        }) as ISeriesApi<"Histogram">;
+        seriesRef.current["macd_hist"] = h;
+      }
+      h.setData(
+        m.histogram
+          .map((v, i) => ({
+            time: times[i],
+            value: v,
+            color: v != null && v >= 0 ? "rgba(8,153,129,0.6)" : "rgba(242,54,69,0.6)",
+          }))
+          .filter((p) => p.value != null) as { time: UTCTimestamp; value: number; color: string }[],
+      );
+    } else {
+      remove("macd_line");
+      remove("macd_signal");
+      remove("macd_hist");
+    }
+
+    applyLayout();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candles, inds]);
+
+  function applyLayout() {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const hasRsi = inds.rsi;
+    const hasMacd = inds.macd;
+
+    const priceBottom = hasRsi && hasMacd ? 0.36 : hasRsi || hasMacd ? 0.42 : 0.78;
+    chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.05, bottom: priceBottom } });
+
+    if (inds.volume && seriesRef.current["volume"]) {
+      chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0.98 } });
+    }
+    if (hasRsi && seriesRef.current["rsi"]) {
+      chart.priceScale("rsi").applyOptions({
+        scaleMargins: { top: hasMacd ? 0.44 : 0.48, bottom: hasMacd ? 0.54 : 0.60 },
+      });
+    }
+    if (hasMacd && seriesRef.current["macd_hist"]) {
+      chart.priceScale("macd").applyOptions({
+        scaleMargins: { top: hasRsi ? 0.60 : 0.52, bottom: hasRsi ? 0.72 : 0.66 },
+      });
+    }
+  }
 
   const last = candles[candles.length - 1];
   const price = ticker?.price ?? last?.close;
@@ -302,30 +402,34 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
               Indicators
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-tv-border bg-tv-panel2 py-1 shadow-xl">
-                {Object.keys(IND_LABELS).map((key) => {
-                  const k = key as IndKey;
-                  return (
-                    <button
-                      key={k}
-                      onClick={() => toggleInd(k)}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-tv-text hover:bg-tv-accent/15"
-                    >
-                      <span
-                        className={`flex h-3.5 w-3.5 items-center justify-center rounded-sm border ${
-                          inds[k] ? "border-tv-accent bg-tv-accent" : "border-tv-border bg-tv-bg"
-                        }`}
+              <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-md border border-tv-border bg-tv-panel2 py-1 shadow-xl">
+                {IND_MENU.map((group) => (
+                  <div key={group.group}>
+                    <div className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-tv-muted">
+                      {group.group}
+                    </div>
+                    {group.items.map((item) => (
+                      <button
+                        key={item.key}
+                        onClick={() => toggleInd(item.key)}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-tv-text hover:bg-tv-accent/15"
                       >
-                        {inds[k] && (
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
-                            <path d="M4 12l5 5L20 6" stroke="white" strokeWidth="3" strokeLinecap="round" />
-                          </svg>
-                        )}
-                      </span>
-                      {IND_LABELS[k]}
-                    </button>
-                  );
-                })}
+                        <span
+                          className={`flex h-3.5 w-3.5 items-center justify-center rounded-sm border ${
+                            inds[item.key] ? "border-tv-accent bg-tv-accent" : "border-tv-border bg-tv-bg"
+                          }`}
+                        >
+                          {inds[item.key] && (
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+                              <path d="M4 12l5 5L20 6" stroke="white" strokeWidth="3" strokeLinecap="round" />
+                            </svg>
+                          )}
+                        </span>
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                ))}
               </div>
             )}
           </div>
