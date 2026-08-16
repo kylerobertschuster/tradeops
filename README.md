@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TradeOps
 
-## Getting Started
+**Free & open-source on-chain analytics and paper-trading terminal** — a TradingView-style charting experience with a built-in simulated trading account, available to everyone at no cost.
 
-First, run the development server:
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-000000?logo=next.js&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+---
+
+## Why TradeOps?
+
+Professional-grade market analytics (Chainalysis, TRM Labs, Nansen, TradingView) are locked behind expensive subscriptions or enterprise contracts. TradeOps rebuilds the core experience — professional charting and hands-on paper trading — as a free, self-hostable, open-source product. No API keys, no accounts, no paywall.
+
+## Features
+
+- **TradingView-style charting** — powered by TradingView's own open-source [Lightweight Charts](https://github.com/tradingview/lightweight-charts). Candlesticks, volume, and overlay indicators.
+- **Indicators** — Volume, SMA 20/50, EMA 20/50, and Bollinger Bands (20, 2), with 7 timeframes (`1m` → `1w`).
+- **Live market data** — multi-provider with automatic failover: Binance → Bybit → Coinbase (candles) and Binance → CoinGecko (tickers). **No API key required.**
+- **Watchlist & search** — curated top assets in the sidebar plus fuzzy symbol search.
+- **Paper trading** — start with a virtual **$100,000**, trade at market with realistic 0.1% taker fees, and track live P&L, open positions, and order history. Persisted locally in your browser.
+- **Dark, professional UI** — modeled on TradingView's exact palette.
+
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Production build:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm start
+```
 
-## Learn More
+## Tech stack
 
-To learn more about Next.js, take a look at the following resources:
+| Layer     | Technology                                              |
+| --------- | ------------------------------------------------------- |
+| Framework | Next.js 16 (App Router, TypeScript)                     |
+| UI        | Tailwind CSS v4                                         |
+| Charts    | TradingView Lightweight Charts                          |
+| State     | Zustand (persisted paper account)                       |
+| Data      | Binance, Bybit, Coinbase, CoinGecko (public, keyless)   |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Roadmap
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **On-chain analytics** — whale tracking, wallet labeling, token transfer flows, holder analytics (Ethereum/EVM via public RPC + Etherscan).
+- **More indicators** — RSI, MACD, VWAP, Fibonacci.
+- **Accounts & cloud sync** — optional login to sync paper portfolios and shared watchlists.
+- **Alerts & price notifications.**
 
-## Deploy on Vercel
+## Disclaimer
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+TradeOps is for **education and research only**. Market data is provided by third-party public APIs and may be delayed or inaccurate. Paper trading uses simulated funds — nothing here is financial advice, and no real assets are involved.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+
+MIT — free to use, modify, and self-host. See [LICENSE](./LICENSE).
