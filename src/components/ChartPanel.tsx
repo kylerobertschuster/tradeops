@@ -135,7 +135,7 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       },
       rightPriceScale: {
         borderColor: "#2a2e39",
-        scaleMargins: { top: 0.05, bottom: 0.78 },
+        scaleMargins: { top: 0.05, bottom: 0.215 },
       },
       timeScale: { borderColor: "#2a2e39", timeVisible: true, secondsVisible: false },
     });
@@ -341,23 +341,34 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   function applyLayout() {
     const chart = chartRef.current;
     if (!chart) return;
-    const hasRsi = inds.rsi;
-    const hasMacd = inds.macd;
 
-    const priceBottom = hasRsi && hasMacd ? 0.36 : hasRsi || hasMacd ? 0.42 : 0.78;
-    chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.05, bottom: priceBottom } });
+    const TOP_MARGIN = 0.05;
+    const GAP = 0.015;
 
-    if (inds.volume && seriesRef.current["volume"]) {
-      chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0.98 } });
+    // Stacked from the bottom up: volume is the bottom strip, oscillators sit above it.
+    type Pane = { key: "volume" | "rsi" | "macd"; height: number };
+    const bottomPanes: Pane[] = [];
+    if (inds.volume && seriesRef.current["volume"]) bottomPanes.push({ key: "volume", height: 0.2 });
+    if (inds.macd && seriesRef.current["macd_hist"]) bottomPanes.push({ key: "macd", height: 0.12 });
+    if (inds.rsi && seriesRef.current["rsi"]) bottomPanes.push({ key: "rsi", height: 0.12 });
+
+    const spans: Record<string, { start: number; end: number }> = {};
+    let cursor = 1;
+    for (const pane of bottomPanes) {
+      const end = cursor;
+      const start = end - pane.height;
+      spans[pane.key] = { start, end };
+      cursor = start - GAP;
     }
-    if (hasRsi && seriesRef.current["rsi"]) {
-      chart.priceScale("rsi").applyOptions({
-        scaleMargins: { top: hasMacd ? 0.44 : 0.48, bottom: hasMacd ? 0.54 : 0.60 },
-      });
-    }
-    if (hasMacd && seriesRef.current["macd_hist"]) {
-      chart.priceScale("macd").applyOptions({
-        scaleMargins: { top: hasRsi ? 0.60 : 0.52, bottom: hasRsi ? 0.72 : 0.66 },
+
+    chart.priceScale("right").applyOptions({
+      scaleMargins: { top: TOP_MARGIN, bottom: 1 - cursor },
+    });
+
+    for (const pane of bottomPanes) {
+      const span = spans[pane.key];
+      chart.priceScale(pane.key).applyOptions({
+        scaleMargins: { top: span.start, bottom: 1 - span.end },
       });
     }
   }
