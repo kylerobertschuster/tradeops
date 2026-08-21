@@ -1,4 +1,7 @@
 import type { Candle, Interval, SymbolInfo, Ticker } from "./types";
+import type { WhaleTransfer } from "./onchain";
+
+export type { WhaleTransfer };
 
 /** Client-side fetchers for the local API routes. */
 
@@ -19,4 +22,18 @@ export async function searchSymbols(q: string): Promise<SymbolInfo[]> {
   const res = await fetch(`/api/symbols?q=${encodeURIComponent(q)}`);
   if (!res.ok) return [];
   return (await res.json()) as SymbolInfo[];
+}
+
+export async function fetchWhales(minUsd = 1_000_000, blocks = 15): Promise<WhaleTransfer[]> {
+  const res = await fetch(`/api/whales?minUsd=${minUsd}&blocks=${blocks}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { transfers?: WhaleTransfer[] };
+  return data.transfers ?? [];
+}
+
+export async function fetchAddressTransfers(address: string): Promise<WhaleTransfer[]> {
+  const res = await fetch(`/api/transfers?address=${encodeURIComponent(address)}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { transfers?: WhaleTransfer[] };
+  return data.transfers ?? [];
 }

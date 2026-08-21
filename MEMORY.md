@@ -9,30 +9,36 @@ Free, open-source on-chain analytics + paper-trading terminal. Rebuild the
 professional experience (Chainalysis / Nansen / TradingView) without the
 paywalls. No API keys, no accounts, no bullshit.
 
-## Current State (v0.1)
+## Current State (v0.2)
 
 Done:
 - TradingView Lightweight Charts (candles, volume, overlays)
-- Indicators: Volume, SMA 20/50, EMA 20/50, Bollinger Bands (20, 2)
+- Indicators: Volume, SMA 20/50, EMA 20/50, Bollinger Bands (20, 2),
+  RSI 14, MACD (12, 26, 9), VWAP
 - 7 timeframes (`1m` → `1w`)
 - Multi-provider market data with failover: Binance → Bybit → Coinbase (candles),
   Binance → CoinGecko (tickers). No API keys.
 - Watchlist + fuzzy symbol search
 - Paper trading: virtual $100k, market orders, 0.1% taker fee, live P&L,
   positions, order history — persisted in-browser (Zustand)
+- **On-chain tab in the right panel:** live whale feed (ERC-20 transfers
+  ≥ $100K threshold filter), click-through address inspector (inflow/outflow/net
+  + transfer history), wallet labeling (Exchange/Whale/VC/MEV/Exploiter/Contract,
+  persisted), Etherscan deep links for tx + address
 - Dark professional UI (TradingView palette)
 
 Stack: Next.js 16 (App Router, TS) · Tailwind v4 · Lightweight Charts ·
-Zustand · public keyless market data APIs.
+Zustand · public keyless market data APIs + public Ethereum RPC.
 
 ## Known Issues / What's Broke
 
-- (add as we find them — this is the "and this BROKE 😂" section)
+- `ChartPanel.tsx` has pre-existing lint errors (sync `setState` in effects,
+  `applyLayout` called before its declaration, one `any`) — cosmetic, not
+  user-facing, but clean them up next time we touch the chart.
 
 ## Roadmap
 
-- On-chain analytics: whale tracking, wallet labeling, token transfer flows,
-  holder analytics (Ethereum/EVM via public RPC + Etherscan)
-- More indicators: RSI, MACD, VWAP, Fibonacci
-- Accounts & cloud sync (optional login)
+- Holder analytics: top holders, distribution, concentration per token
+- More indicators: Fibonacci, Ichimoku, order-flow heatmaps
+- Accounts & cloud sync (optional login) — sync portfolios, labels, watchlists
 - Alerts & price notifications

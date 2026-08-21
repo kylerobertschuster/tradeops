@@ -52,3 +52,29 @@ export function formatTime(ts: number): string {
     minute: "2-digit",
   });
 }
+
+export function timeAgo(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
+export function shortAddr(a: string): string {
+  if (!a) return "";
+  if (a.length <= 12) return a;
+  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+export function formatCompactNum(n: number | undefined | null): string {
+  if (n == null || !isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+  return n.toFixed(2);
+}

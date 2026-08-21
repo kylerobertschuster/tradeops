@@ -8,6 +8,7 @@ import RightPanel from "@/components/RightPanel";
 import { fetchTickers } from "@/lib/api";
 import { CURATED } from "@/lib/symbols";
 import { usePaperStore, STARTING_BALANCE } from "@/store/paperTrading";
+import { useLabelsStore } from "@/store/labels";
 import type { Interval, Ticker } from "@/lib/types";
 
 export default function Home() {
@@ -18,9 +19,10 @@ export default function Home() {
   const cash = usePaperStore((s) => s.cash);
   const positions = usePaperStore((s) => s.positions);
 
-  // Rehydrate persisted paper account (skipHydration avoids SSR mismatch)
+  // Rehydrate persisted stores (skipHydration avoids SSR mismatch)
   useEffect(() => {
     void usePaperStore.persist.rehydrate();
+    void useLabelsStore.persist.rehydrate();
   }, []);
 
   const symbolsKey = useMemo(() => {
@@ -33,7 +35,6 @@ export default function Home() {
   useEffect(() => {
     const symbols = symbolsKey.split(",").filter(Boolean);
     let alive = true;
-    let timer: ReturnType<typeof setInterval> | undefined;
 
     async function load() {
       const t = await fetchTickers(symbols);
@@ -41,10 +42,10 @@ export default function Home() {
     }
 
     load();
-    timer = setInterval(load, 5000);
+    const timer = setInterval(load, 5000);
     return () => {
       alive = false;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
   }, [symbolsKey]);
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import OrderTicket from "./OrderTicket";
+import OnchainPanel from "./OnchainPanel";
 import { usePaperStore, STARTING_BALANCE } from "@/store/paperTrading";
 import { findSymbol } from "@/lib/symbols";
 import type { Ticker } from "@/lib/types";
@@ -13,7 +14,7 @@ type Props = {
   tickers: Record<string, Ticker>;
 };
 
-type Tab = "trade" | "positions" | "orders";
+type Tab = "trade" | "positions" | "orders" | "onchain";
 
 export default function RightPanel({ symbol, ticker, tickers }: Props) {
   const [tab, setTab] = useState<Tab>("trade");
@@ -89,7 +90,7 @@ export default function RightPanel({ symbol, ticker, tickers }: Props) {
 
       {/* Tabs */}
       <div className="flex border-b border-tv-border">
-        {(["trade", "positions", "orders"] as Tab[]).map((t) => (
+        {(["trade", "positions", "orders", "onchain"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -99,7 +100,11 @@ export default function RightPanel({ symbol, ticker, tickers }: Props) {
                 : "border-transparent text-tv-muted hover:text-tv-text"
             }`}
           >
-            {t === "positions" ? `Positions (${positionList.length})` : t}
+            {t === "positions"
+              ? `Positions (${positionList.length})`
+              : t === "onchain"
+                ? "On-chain"
+                : t}
           </button>
         ))}
       </div>
@@ -152,6 +157,8 @@ export default function RightPanel({ symbol, ticker, tickers }: Props) {
               })}
             </div>
           ))}
+
+        {tab === "onchain" && <OnchainPanel />}
 
         {tab === "orders" &&
           (orders.length === 0 ? (

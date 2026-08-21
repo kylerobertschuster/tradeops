@@ -15,8 +15,9 @@ Professional-grade market analytics (Chainalysis, TRM Labs, Nansen, TradingView)
 ## Features
 
 - **TradingView-style charting** — powered by TradingView's own open-source [Lightweight Charts](https://github.com/tradingview/lightweight-charts). Candlesticks, volume, and overlay indicators.
-- **Indicators** — Volume, SMA 20/50, EMA 20/50, and Bollinger Bands (20, 2), with 7 timeframes (`1m` → `1w`).
+- **Indicators** — Volume, SMA 20/50, EMA 20/50, Bollinger Bands (20, 2), RSI 14, MACD (12, 26, 9), and VWAP, with 7 timeframes (`1m` → `1w`).
 - **Live market data** — multi-provider with automatic failover: Binance → Bybit → Coinbase (candles) and Binance → CoinGecko (tickers). **No API key required.**
+- **On-chain analytics** — live whale feed (ERC-20 transfers ≥ $100K across USDC/USDT/DAI/WETH/WBTC/LINK/UNI/AAVE via public RPC, no API key), click-to-inspect any address (inflow/outflow/net + full transfer history), and **wallet labeling** (tag addresses as Exchange / Whale / VC / MEV / Exploiter / Contract, persisted locally). One click through to Etherscan for any tx or address.
 - **Watchlist & search** — curated top assets in the sidebar plus fuzzy symbol search.
 - **Paper trading** — start with a virtual **$100,000**, trade at market with realistic 0.1% taker fees, and track live P&L, open positions, and order history. Persisted locally in your browser.
 - **Dark, professional UI** — modeled on TradingView's exact palette.
@@ -49,9 +50,9 @@ npm start
 
 ## Roadmap
 
-- **On-chain analytics** — whale tracking, wallet labeling, token transfer flows, holder analytics (Ethereum/EVM via public RPC + Etherscan).
-- **More indicators** — RSI, MACD, VWAP, Fibonacci.
-- **Accounts & cloud sync** — optional login to sync paper portfolios and shared watchlists.
+- **Holder analytics** — top holders, distribution, and concentration metrics per token.
+- **More indicators** — Fibonacci retracement, Ichimoku, order-flow heatmaps.
+- **Accounts & cloud sync** — optional login to sync paper portfolios, labels, and watchlists.
 - **Alerts & price notifications.**
 
 ## Disclaimer
