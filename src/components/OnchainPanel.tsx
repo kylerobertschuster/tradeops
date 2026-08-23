@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchWhales, fetchAddressTransfers, type WhaleTransfer } from "@/lib/api";
+import { fetchWhales, fetchAddressTransfers, fetchHolders, type WhaleTransfer, type HolderStats } from "@/lib/api";
+import type { Holder } from "@/lib/holders";
 import { useLabelsStore, type WalletLabel } from "@/store/labels";
 import { formatCompact, formatCompactNum, shortAddr, timeAgo } from "@/lib/format";
 
@@ -10,6 +11,17 @@ const MIN_USD_OPTIONS = [
   { value: 1_000_000, label: "≥ $1M" },
   { value: 5_000_000, label: "≥ $5M" },
   { value: 10_000_000, label: "≥ $10M" },
+];
+
+const HOLDER_TOKENS = [
+  { symbol: "USDC", label: "USDC" },
+  { symbol: "USDT", label: "USDT" },
+  { symbol: "DAI", label: "DAI" },
+  { symbol: "WETH", label: "WETH" },
+  { symbol: "WBTC", label: "WBTC" },
+  { symbol: "LINK", label: "LINK" },
+  { symbol: "UNI", label: "UNI" },
+  { symbol: "AAVE", label: "AAVE" },
 ];
 
 const CATEGORIES = ["exchange", "whale", "vc", "mev", "hacker", "contract", "other"] as const;
@@ -33,6 +45,10 @@ const CATEGORY_COLORS: Record<string, string> = {
   contract: "#787b86",
   other: "#787b86",
 };
+
+const KNOWN_LABEL_COLOR = "#26a69a";
+
+const clamp = (n: number) => Math.max(0, Math.min(100, n));
 
 const etherscan = (kind: "tx" | "address", value: string) => `https://etherscan.io/${kind}/${value}`;
 
@@ -136,6 +152,7 @@ function LabelEditor({ address }: { address: string }) {
 }
 
 export default function OnchainPanel() {
+  const [mode, setMode] = useState<"whales" | "holders">("whales");
   const [minUsd, setMinUsd] = useState(1_000_000);
   const [whales, setWhales] = useState<WhaleTransfer[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -144,6 +161,9 @@ export default function OnchainPanel() {
   const [selected, setSelected] = useState<string | null>(null);
   const [addrData, setAddrData] = useState<{ address: string; transfers: WhaleTransfer[] } | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const [holderSymbol, setHolderSymbol] = useState("USDC");
+  const [holderData, setHolderData] = useState<{ symbol: string; stats: HolderStats | null } | null>(null);
 
   const labels = useLabelsStore((s) => s.labels);
 
@@ -188,11 +208,35 @@ export default function OnchainPanel() {
     };
   }, [selected]);
 
+  // Load holder analytics for the selected token
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const s = await fetchHolders(holderSymbol);
+        if (alive) setHolderData({ symbol: holderSymbol, stats: s });
+      } catch {
+        if (alive) setHolderData({ symbol: holderSymbol, stats: null });
+      }
+    }
+    load();
+    const timer = setInterval(load, 120_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [holderSymbol]);
+
   const addrTransfers = useMemo(
     () => (addrData && addrData.address === selected ? addrData.transfers : []),
     [addrData, selected],
   );
   const addrLoading = !addrData || addrData.address !== selected;
+
+  const curHolder = holderData && holderData.symbol === holderSymbol ? holderData : null;
+  const holderStats = curHolder?.stats ?? null;
+  const holderError = !!curHolder && !curHolder.stats;
+  const holderLoading = !curHolder;
 
   const summary = useMemo(
     () => ({
@@ -211,6 +255,13 @@ export default function OnchainPanel() {
     }
     return { inUsd, outUsd, net: inUsd - outUsd };
   }, [addrTransfers, selected]);
+
+  const holderName = (h: Holder) => {
+    const user = labels[h.address];
+    if (user) return { text: user.name, color: CATEGORY_COLORS[user.category] ?? "#787b86" };
+    if (h.label) return { text: h.label, color: KNOWN_LABEL_COLOR };
+    return { text: shortAddr(h.address), color: undefined };
+  };
 
   const copyAddress = async () => {
     if (!selected) return;
@@ -234,7 +285,7 @@ export default function OnchainPanel() {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
             <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          Back to feed
+          Back
         </button>
 
         <div className="mt-2 flex items-center gap-2">
@@ -318,74 +369,209 @@ export default function OnchainPanel() {
     );
   }
 
-  // ---- Whale feed view ----
+  // ---- Main views (Whales / Holders) ----
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-tv-muted">Whale feed</span>
-        <select
-          value={minUsd}
-          onChange={(e) => setMinUsd(Number(e.target.value))}
-          className="rounded border border-tv-border bg-tv-bg px-1.5 py-1 text-[11px] text-tv-text focus:outline-none"
+      <div className="flex items-center gap-1 rounded-md border border-tv-border bg-tv-bg p-0.5">
+        <button
+          onClick={() => setMode("whales")}
+          className={`flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+            mode === "whales" ? "bg-tv-accent text-white" : "text-tv-muted hover:text-tv-text"
+          }`}
         >
-          {MIN_USD_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+          Whales
+        </button>
+        <button
+          onClick={() => setMode("holders")}
+          className={`flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+            mode === "holders" ? "bg-tv-accent text-white" : "text-tv-muted hover:text-tv-text"
+          }`}
+        >
+          Holders
+        </button>
       </div>
 
-      {loaded && !error && (
-        <div className="mt-2 flex items-center gap-1.5 rounded-md border border-tv-border bg-tv-bg px-2.5 py-1.5 text-[11px]">
-          <span className="text-tv-muted">Window volume</span>
-          <span className="font-semibold tabular-nums text-tv-text">{formatCompact(summary.total)}</span>
-          <span className="text-tv-muted">· {summary.count} transfers</span>
+      {mode === "holders" ? (
+        <div className="mt-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-tv-muted">Top holders</span>
+            <select
+              value={holderSymbol}
+              onChange={(e) => setHolderSymbol(e.target.value)}
+              className="rounded border border-tv-border bg-tv-bg px-1.5 py-1 text-[11px] text-tv-text focus:outline-none"
+            >
+              {HOLDER_TOKENS.map((t) => (
+                <option key={t.symbol} value={t.symbol}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {holderLoading && <p className="py-6 text-center text-[12px] text-tv-muted">Loading holders…</p>}
+          {holderError && (
+            <p className="py-6 text-center text-[12px] text-tv-down">Holder data unavailable for {holderSymbol}.</p>
+          )}
+
+          {holderStats && (
+            <>
+              <div className="mt-2 rounded-md border border-tv-border bg-tv-bg p-2.5">
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                  <div>
+                    <span className="text-tv-muted">Total supply </span>
+                    <span className="font-semibold tabular-nums text-tv-text">
+                      {formatCompactNum(holderStats.totalSupply)} {holderStats.symbol}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-tv-muted">Holders </span>
+                    <span className="font-semibold tabular-nums text-tv-text">
+                      {formatCompactNum(holderStats.holderCount)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-tv-muted">Market cap </span>
+                    <span className="font-semibold tabular-nums text-tv-text">
+                      {holderStats.marketCap != null ? formatCompact(holderStats.marketCap) : "—"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-tv-muted">Price </span>
+                    <span className="font-semibold tabular-nums text-tv-text">
+                      {holderStats.price != null ? formatCompact(holderStats.price) : "—"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-2.5">
+                  <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-tv-panel2">
+                    <div style={{ width: `${clamp(holderStats.top10Share)}%` }} className="bg-tv-up" />
+                    <div
+                      style={{ width: `${clamp(holderStats.top50Share - holderStats.top10Share)}%` }}
+                      className="bg-tv-accent"
+                    />
+                    <div
+                      style={{ width: `${clamp(100 - holderStats.top50Share)}%` }}
+                      className="bg-tv-border"
+                    />
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-tv-muted">
+                    <span className="flex items-center gap-1">
+                      <i className="h-1.5 w-1.5 rounded-full bg-tv-up" /> Top 10 {holderStats.top10Share.toFixed(1)}%
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <i className="h-1.5 w-1.5 rounded-full bg-tv-accent" /> #11–50{" "}
+                      {Math.max(0, holderStats.top50Share - holderStats.top10Share).toFixed(1)}%
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <i className="h-1.5 w-1.5 rounded-full bg-tv-border" /> Rest{" "}
+                      {Math.max(0, 100 - holderStats.top50Share).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 space-y-1.5">
+                {holderStats.holders.map((h, i) => {
+                  const nm = holderName(h);
+                  return (
+                    <div key={h.address} className="rounded-md border border-tv-border bg-tv-bg px-2.5 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 shrink-0 text-right text-[11px] tabular-nums text-tv-muted">{i + 1}</span>
+                        <button
+                          onClick={() => setSelected(h.address)}
+                          title={h.address}
+                          className="min-w-0 flex-1 truncate text-left text-[12px] font-medium text-tv-muted hover:text-tv-accent"
+                          style={nm.color ? { color: nm.color } : undefined}
+                        >
+                          {nm.text}
+                        </button>
+                        <span className="shrink-0 text-[11px] font-semibold tabular-nums text-tv-text">
+                          {h.share.toFixed(2)}%
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between pl-8 text-[11px] text-tv-muted">
+                        <span>
+                          {formatCompactNum(h.balance)} {holderStats.symbol}
+                        </span>
+                        <span className="tabular-nums">{h.usd != null ? formatCompact(h.usd) : ""}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="mt-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-tv-muted">Whale feed</span>
+            <select
+              value={minUsd}
+              onChange={(e) => setMinUsd(Number(e.target.value))}
+              className="rounded border border-tv-border bg-tv-bg px-1.5 py-1 text-[11px] text-tv-text focus:outline-none"
+            >
+              {MIN_USD_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {loaded && !error && (
+            <div className="mt-2 flex items-center gap-1.5 rounded-md border border-tv-border bg-tv-bg px-2.5 py-1.5 text-[11px]">
+              <span className="text-tv-muted">Window volume</span>
+              <span className="font-semibold tabular-nums text-tv-text">{formatCompact(summary.total)}</span>
+              <span className="text-tv-muted">· {summary.count} transfers</span>
+            </div>
+          )}
+
+          {!loaded && <p className="py-6 text-center text-[12px] text-tv-muted">Scanning the chain…</p>}
+          {error && whales.length === 0 && <p className="py-6 text-center text-[12px] text-tv-down">{error}</p>}
+
+          <div className="mt-2 space-y-1.5">
+            {whales.map((w, i) => (
+              <div
+                key={`${w.txHash}-${i}`}
+                className="rounded-md border border-tv-border bg-tv-bg px-2.5 py-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[13px] font-semibold text-tv-text">
+                    {formatCompactNum(w.amount)} <span className="text-tv-muted">{w.symbol}</span>
+                  </span>
+                  <span className="text-[12px] font-medium tabular-nums text-tv-text">
+                    {formatCompact(w.usd)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center gap-1 text-[11px]">
+                  <AddressChip address={w.from} label={labels[w.from]} onClick={() => setSelected(w.from)} />
+                  <span className="shrink-0 text-tv-muted">→</span>
+                  <AddressChip address={w.to} label={labels[w.to]} onClick={() => setSelected(w.to)} />
+                  <span className="ml-auto flex shrink-0 items-center gap-1.5 text-tv-muted">
+                    {timeAgo(w.time)}
+                    <a
+                      href={etherscan("tx", w.txHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="View on Etherscan"
+                      className="text-tv-accent hover:underline"
+                    >
+                      ↗
+                    </a>
+                  </span>
+                </div>
+              </div>
+            ))}
+            {loaded && whales.length === 0 && !error && (
+              <p className="py-6 text-center text-[12px] text-tv-muted">
+                No transfers above {formatCompact(minUsd)} in the last few blocks.
+              </p>
+            )}
+          </div>
         </div>
       )}
-
-      {!loaded && <p className="py-6 text-center text-[12px] text-tv-muted">Scanning the chain…</p>}
-      {error && whales.length === 0 && <p className="py-6 text-center text-[12px] text-tv-down">{error}</p>}
-
-      <div className="mt-2 space-y-1.5">
-        {whales.map((w, i) => (
-          <div
-            key={`${w.txHash}-${i}`}
-            className="rounded-md border border-tv-border bg-tv-bg px-2.5 py-2"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[13px] font-semibold text-tv-text">
-                {formatCompactNum(w.amount)} <span className="text-tv-muted">{w.symbol}</span>
-              </span>
-              <span className="text-[12px] font-medium tabular-nums text-tv-text">
-                {formatCompact(w.usd)}
-              </span>
-            </div>
-            <div className="mt-1 flex items-center gap-1 text-[11px]">
-              <AddressChip address={w.from} label={labels[w.from]} onClick={() => setSelected(w.from)} />
-              <span className="shrink-0 text-tv-muted">→</span>
-              <AddressChip address={w.to} label={labels[w.to]} onClick={() => setSelected(w.to)} />
-              <span className="ml-auto flex shrink-0 items-center gap-1.5 text-tv-muted">
-                {timeAgo(w.time)}
-                <a
-                  href={etherscan("tx", w.txHash)}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="View on Etherscan"
-                  className="text-tv-accent hover:underline"
-                >
-                  ↗
-                </a>
-              </span>
-            </div>
-          </div>
-        ))}
-        {loaded && whales.length === 0 && !error && (
-          <p className="py-6 text-center text-[12px] text-tv-muted">
-            No transfers above {formatCompact(minUsd)} in the last few blocks.
-          </p>
-        )}
-      </div>
     </div>
   );
 }

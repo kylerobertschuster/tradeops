@@ -1,7 +1,8 @@
 import type { Candle, Interval, SymbolInfo, Ticker } from "./types";
 import type { WhaleTransfer } from "./onchain";
+import type { HolderStats } from "./holders";
 
-export type { WhaleTransfer };
+export type { WhaleTransfer, HolderStats };
 
 /** Client-side fetchers for the local API routes. */
 
@@ -36,4 +37,10 @@ export async function fetchAddressTransfers(address: string): Promise<WhaleTrans
   if (!res.ok) return [];
   const data = (await res.json()) as { transfers?: WhaleTransfer[] };
   return data.transfers ?? [];
+}
+
+export async function fetchHolders(symbol: string): Promise<HolderStats | null> {
+  const res = await fetch(`/api/holders?symbol=${encodeURIComponent(symbol)}`);
+  if (!res.ok) return null;
+  return (await res.json()) as HolderStats;
 }
