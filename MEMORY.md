@@ -12,6 +12,7 @@ paywalls. No API keys, no accounts, no bullshit.
 ## Current State (v0.3)
 
 Done:
+
 - TradingView Lightweight Charts (candles, volume, overlays)
 - Indicators: Volume, SMA 20/50, EMA 20/50, Bollinger Bands (20, 2),
   RSI 14, MACD (12, 26, 9), VWAP
@@ -23,8 +24,8 @@ Done:
   positions, order history — persisted in-browser (Zustand)
 - **On-chain tab in the right panel:** live whale feed (ERC-20 transfers
   ≥ $100K threshold filter), click-through address inspector (inflow/outflow/net
-  + transfer history), wallet labeling (Exchange/Whale/VC/MEV/Exploiter/Contract,
-  persisted), Etherscan deep links for tx + address
+  - transfer history), wallet labeling (Exchange/Whale/VC/MEV/Exploiter/Contract,
+    persisted), Etherscan deep links for tx + address
 - **Holder analytics (same tab, "Holders" view):** top-50 holders per tracked
   token (USDC/USDT/DAI/WETH/WBTC/LINK/UNI/AAVE) via BlockScout's keyless API —
   concentration bar (top-10 / #11–50 / rest), share %, known-entity names
