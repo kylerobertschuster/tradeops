@@ -39,6 +39,18 @@ const COINBASE_GRAN: Record<Interval, number> = {
 
 const cache = new Map<string, { t: number; data: unknown }>();
 
+/**
+ * Normalize a provider timestamp to unix seconds, which is what `Candle.time`
+ * promises. Providers disagree: Binance and Coinbase report seconds, Bybit
+ * reports milliseconds. The two scales are ~1000x apart (seconds reach ~1.8e9
+ * today, milliseconds ~1.8e12), so a threshold at 1e11 separates them cleanly
+ * and will keep doing so for centuries. Without this, a Bybit response shifts
+ * every candle by 1000x and silently wrecks the time axis.
+ */
+function toSeconds(t: number): number {
+  return t >= 1e11 ? Math.floor(t / 1000) : t;
+}
+
 /** Overall budget for a full provider-failover chain (see `budgetMs`). */
 const CHAIN_BUDGET_MS = 12_000;
 
@@ -68,7 +80,7 @@ async function binanceKlines(symbol: string, interval: Interval, limit: number, 
     return data.map((k) => {
       const r = k as number[];
       return {
-        time: Math.floor(r[0] / 1000),
+        time: toSeconds(r[0]),
         open: +r[1],
         high: +r[2],
         low: +r[3],
@@ -89,7 +101,7 @@ async function bybitKlines(symbol: string, interval: Interval, limit: number, ti
     if (!Array.isArray(list) || list.length === 0) return null;
     return list
       .map((k) => ({
-        time: +k[0],
+        time: toSeconds(+k[0]),
         open: +k[1],
         high: +k[2],
         low: +k[3],
@@ -112,7 +124,7 @@ async function coinbaseKlines(symbol: string, interval: Interval, limit: number,
     return data
       .map((c) => {
         const r = c as number[];
-        return { time: r[0], open: +r[3], high: +r[2], low: +r[1], close: +r[4], volume: +r[5] };
+        return { time: toSeconds(r[0]), open: +r[3], high: +r[2], low: +r[1], close: +r[4], volume: +r[5] };
       })
       .reverse()
       .slice(-limit);
