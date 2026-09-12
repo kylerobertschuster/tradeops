@@ -11,6 +11,7 @@ import {
   LineStyle,
   type IChartApi,
   type ISeriesApi,
+  type SeriesType,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/api";
@@ -65,12 +66,16 @@ type Props = {
 export default function ChartPanel({ symbol, interval, ticker }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<Record<string, ISeriesApi<any>>>({});
+  const seriesRef = useRef<Record<string, ISeriesApi<SeriesType>>>({});
   const fitKeyRef = useRef<string>("");
 
   const [candles, setCandles] = useState<Candle[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Key of the last symbol/interval that finished loading. `loading` is derived
+  // from it so we never have to setState synchronously inside the fetch effect.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const fetchKey = `${symbol}:${interval}`;
+  const loading = loadedKey !== fetchKey;
   const [menuOpen, setMenuOpen] = useState(false);
   const [inds, setInds] = useState<Record<IndKey, boolean>>({
     volume: true,
@@ -89,7 +94,6 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   // Fetch candles (poll for live updates)
   useEffect(() => {
     let alive = true;
-    let timer: ReturnType<typeof setInterval> | undefined;
     async function load() {
       try {
         const data = await fetchKlines(symbol, interval);
@@ -99,15 +103,14 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       } catch {
         if (alive) setError("Unable to load market data. Please try again shortly.");
       } finally {
-        if (alive) setLoading(false);
+        if (alive) setLoadedKey(`${symbol}:${interval}`);
       }
     }
-    setLoading(true);
     load();
-    timer = setInterval(load, 15000);
+    const timer = setInterval(load, 15000);
     return () => {
       alive = false;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
   }, [symbol, interval]);
 
@@ -189,6 +192,41 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       chartRef.current?.timeScale().fitContent();
     }
   }, [candles, symbol, interval]);
+
+  function applyLayout() {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const TOP_MARGIN = 0.05;
+    const GAP = 0.015;
+
+    // Stacked from the bottom up: volume is the bottom strip, oscillators sit above it.
+    type Pane = { key: "volume" | "rsi" | "macd"; height: number };
+    const bottomPanes: Pane[] = [];
+    if (inds.volume && seriesRef.current["volume"]) bottomPanes.push({ key: "volume", height: 0.2 });
+    if (inds.macd && seriesRef.current["macd_hist"]) bottomPanes.push({ key: "macd", height: 0.12 });
+    if (inds.rsi && seriesRef.current["rsi"]) bottomPanes.push({ key: "rsi", height: 0.12 });
+
+    const spans: Record<string, { start: number; end: number }> = {};
+    let cursor = 1;
+    for (const pane of bottomPanes) {
+      const end = cursor;
+      const start = end - pane.height;
+      spans[pane.key] = { start, end };
+      cursor = start - GAP;
+    }
+
+    chart.priceScale("right").applyOptions({
+      scaleMargins: { top: TOP_MARGIN, bottom: 1 - cursor },
+    });
+
+    for (const pane of bottomPanes) {
+      const span = spans[pane.key];
+      chart.priceScale(pane.key).applyOptions({
+        scaleMargins: { top: span.start, bottom: 1 - span.end },
+      });
+    }
+  }
 
   // Sync indicators + layout
   useEffect(() => {
@@ -337,41 +375,6 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
     applyLayout();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candles, inds]);
-
-  function applyLayout() {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    const TOP_MARGIN = 0.05;
-    const GAP = 0.015;
-
-    // Stacked from the bottom up: volume is the bottom strip, oscillators sit above it.
-    type Pane = { key: "volume" | "rsi" | "macd"; height: number };
-    const bottomPanes: Pane[] = [];
-    if (inds.volume && seriesRef.current["volume"]) bottomPanes.push({ key: "volume", height: 0.2 });
-    if (inds.macd && seriesRef.current["macd_hist"]) bottomPanes.push({ key: "macd", height: 0.12 });
-    if (inds.rsi && seriesRef.current["rsi"]) bottomPanes.push({ key: "rsi", height: 0.12 });
-
-    const spans: Record<string, { start: number; end: number }> = {};
-    let cursor = 1;
-    for (const pane of bottomPanes) {
-      const end = cursor;
-      const start = end - pane.height;
-      spans[pane.key] = { start, end };
-      cursor = start - GAP;
-    }
-
-    chart.priceScale("right").applyOptions({
-      scaleMargins: { top: TOP_MARGIN, bottom: 1 - cursor },
-    });
-
-    for (const pane of bottomPanes) {
-      const span = spans[pane.key];
-      chart.priceScale(pane.key).applyOptions({
-        scaleMargins: { top: span.start, bottom: 1 - span.end },
-      });
-    }
-  }
 
   const last = candles[candles.length - 1];
   const price = ticker?.price ?? last?.close;
