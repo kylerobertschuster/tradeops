@@ -5,6 +5,7 @@ import TopBar from "@/components/TopBar";
 import Watchlist from "@/components/Watchlist";
 import ChartPanel from "@/components/ChartPanel";
 import RightPanel from "@/components/RightPanel";
+import MobileNav, { type Pane } from "@/components/MobileNav";
 import { fetchTickers } from "@/lib/api";
 import { CURATED } from "@/lib/symbols";
 import { usePaperStore, STARTING_BALANCE } from "@/store/paperTrading";
@@ -15,6 +16,8 @@ export default function Home() {
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [interval, setIntervalState] = useState<Interval>("15m");
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
+  /** Only meaningful below `lg`; on desktop all three panels are shown. */
+  const [pane, setPane] = useState<Pane>("chart");
 
   const cash = usePaperStore((s) => s.cash);
   const positions = usePaperStore((s) => s.positions);
@@ -59,6 +62,23 @@ export default function Home() {
     return { equity, pnl, pnlPct: (pnl / STARTING_BALANCE) * 100 };
   }, [cash, positions, tickers]);
 
+  /**
+   * Panels below `lg` show one at a time; from `lg` up they are all visible.
+   *
+   * The inactive case is `hidden lg:flex` and the active case is `flex` — never
+   * both `flex` and `hidden` unprefixed on one element, since Tailwind emits
+   * `hidden` after `flex` and the class order in the attribute does not decide
+   * it. The responsive variant sits in a later media query, so `lg:flex` still
+   * wins over the bare `hidden` on desktop.
+   */
+  const paneClass = (name: Pane) => (pane === name ? "flex" : "hidden lg:flex");
+
+  /** Picking an asset on mobile should land you on it, not on the list. */
+  const selectSymbol = (next: string) => {
+    setSymbol(next);
+    setPane("chart");
+  };
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-tv-bg text-tv-text">
       <TopBar
@@ -67,15 +87,26 @@ export default function Home() {
         equity={equity}
         pnl={pnl}
         pnlPct={pnlPct}
-        onSelectSymbol={setSymbol}
+        onSelectSymbol={selectSymbol}
       />
       <div className="flex min-h-0 flex-1">
-        <Watchlist tickers={tickers} selected={symbol} onSelect={setSymbol} />
-        <main className="flex min-w-0 flex-1 flex-col">
+        <div
+          className={`min-h-0 flex-1 flex-col lg:w-60 lg:flex-none ${paneClass("markets")}`}
+        >
+          <Watchlist tickers={tickers} selected={symbol} onSelect={selectSymbol} />
+        </div>
+        <main
+          className={`min-h-0 min-w-0 flex-1 flex-col ${paneClass("chart")}`}
+        >
           <ChartPanel symbol={symbol} interval={interval} ticker={tickers[symbol]} />
         </main>
-        <RightPanel symbol={symbol} ticker={tickers[symbol]} tickers={tickers} />
+        <div
+          className={`min-h-0 flex-1 flex-col lg:w-80 lg:flex-none ${paneClass("trade")}`}
+        >
+          <RightPanel symbol={symbol} ticker={tickers[symbol]} tickers={tickers} />
+        </div>
       </div>
+      <MobileNav pane={pane} onPane={setPane} />
     </div>
   );
 }

@@ -41,7 +41,9 @@ export default function RightPanel({ symbol, ticker, tickers }: Props) {
   const selectedPrice = ticker?.price;
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-l border-tv-border bg-tv-panel">
+    // Width is owned by the parent (fixed rail on desktop, full-screen pane
+    // on mobile); the divider only applies when it sits beside the chart.
+    <aside className="flex w-full min-h-0 flex-col bg-tv-panel lg:border-l lg:border-tv-border">
       {/* Account summary */}
       <div className="border-b border-tv-border p-3">
         <div className="flex items-center justify-between">

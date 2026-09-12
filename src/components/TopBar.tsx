@@ -27,27 +27,32 @@ type Props = {
 export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, onSelectSymbol }: Props) {
   const up = pnl >= 0;
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-tv-border bg-tv-panel px-3">
+    // Wraps to two rows on narrow screens (brand + search + P&L, then the
+    // timeframes) and collapses back to the original single row at `lg`. The
+    // timeframes use `order-last w-full` to claim their own row when wrapped
+    // and `lg:order-none lg:w-auto` to slot back inline on desktop, so the
+    // desktop order is unchanged: brand, search, timeframes, account.
+    <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-tv-border bg-tv-panel px-3 lg:h-12 lg:flex-nowrap">
       {/* Logo */}
-      <div className="flex items-center gap-2 pr-1">
+      <div className="flex h-12 items-center gap-2 lg:h-auto">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
           <rect x="4" y="9" width="3" height="9" rx="1" fill="#089981" />
           <rect x="9" y="5" width="3" height="13" rx="1" fill="#089981" />
           <rect x="14" y="7" width="3" height="11" rx="1" fill="#f23645" />
           <rect x="18" y="3" width="2" height="15" rx="1" fill="#f23645" />
         </svg>
-        <span className="text-[15px] font-bold tracking-tight text-tv-text">
+        <span className="hidden text-[15px] font-bold tracking-tight text-tv-text sm:inline">
           Trade<span className="text-tv-accent">Ops</span>
         </span>
       </div>
 
       {/* Search */}
-      <div className="w-64">
+      <div className="min-w-0 flex-1 lg:w-64 lg:flex-none">
         <SymbolSearch onSelect={onSelectSymbol} />
       </div>
 
       {/* Timeframes */}
-      <nav className="ml-2 flex items-center gap-0.5">
+      <nav className="order-last flex w-full items-center gap-0.5 overflow-x-auto pb-2 lg:order-none lg:ml-2 lg:w-auto lg:overflow-visible lg:pb-0">
         {INTERVALS.map((iv) => (
           <button
             key={iv}
@@ -63,11 +68,12 @@ export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, onSe
         ))}
       </nav>
 
-      <div className="flex-1" />
+      <div className="hidden lg:block lg:flex-1" />
 
       {/* Account chip */}
-      <div className="flex items-center gap-3 text-right">
-        <div className="leading-tight">
+      <div className="flex shrink-0 items-center gap-2 text-right lg:gap-3">
+        {/* Equity is the first thing to go when space is tight; P&L matters more. */}
+        <div className="hidden leading-tight sm:block">
           <div className="text-[10px] uppercase tracking-wide text-tv-muted">Equity</div>
           <div className="text-[13px] font-semibold tabular-nums text-tv-text">{formatUsd(equity)}</div>
         </div>

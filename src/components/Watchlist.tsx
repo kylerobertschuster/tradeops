@@ -12,7 +12,10 @@ type Props = {
 
 export default function Watchlist({ tickers, selected, onSelect }: Props) {
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-tv-border bg-tv-panel">
+    // `w-full` rather than a fixed rail: whoever mounts this decides the
+    // width (a fixed rail beside the chart on desktop, a full-screen pane on
+    // mobile), and the border only makes sense when it sits next to the chart.
+    <aside className="flex w-full min-h-0 flex-col bg-tv-panel lg:border-r lg:border-tv-border">
       <div className="flex h-9 items-center justify-between border-b border-tv-border px-3">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-tv-muted">
           Watchlist
