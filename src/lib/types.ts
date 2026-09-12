@@ -12,11 +12,17 @@ export type Ticker = {
   base: string;
   price: number;
   change24h: number; // percent
-  high24h: number;
-  low24h: number;
+  /**
+   * 24h range, or null when the provider does not supply it. CoinGecko's free
+   * tier ignores `include_24hr_high_low` and returns neither field, so the
+   * previous `?? usd` fallback set both to the *current price* — producing a
+   * zero-width "range" that reads as a remarkable fact rather than as missing
+   * data. Null is the honest value, and consumers must handle it.
+   */
+  high24h: number | null;
+  low24h: number | null;
   quoteVolume: number;
 };
-
 export type SymbolInfo = {
   symbol: string; // e.g. BTCUSDT
   base: string; // e.g. BTC

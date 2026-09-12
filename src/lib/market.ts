@@ -7,6 +7,19 @@ import { fetchWithTimeout, budgetMs, UPSTREAM_TIMEOUT_MS } from "./http";
  * Providers (no API keys required): Binance -> Bybit -> Coinbase/CoinGecko.
  */
 
+/**
+ * Parse an optional provider number field.
+ *
+ * Providers return these as strings and routinely omit them, and `+""` is 0 —
+ * not NaN — so a missing 24h high would silently become a real-looking $0.00.
+ * Absence has to survive as null all the way to the UI.
+ */
+function num(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 const BINANCE_IV: Record<Interval, string> = {
   "1m": "1m",
   "5m": "5m",
@@ -160,8 +173,8 @@ async function binanceTickers(symbols: string[], timeoutMs: number): Promise<Rec
         base,
         price: +t.lastPrice,
         change24h: +t.priceChangePercent,
-        high24h: +t.highPrice,
-        low24h: +t.lowPrice,
+        high24h: num(t.highPrice),
+        low24h: num(t.lowPrice),
         quoteVolume: +t.quoteVolume,
       };
     }
@@ -195,8 +208,11 @@ async function coingeckoTickers(symbols: string[], timeoutMs: number): Promise<R
         base: info.base,
         price: d.usd,
         change24h: d.usd_24h_change ?? 0,
-        high24h: d.usd_24h_high ?? d.usd,
-        low24h: d.usd_24h_low ?? d.usd,
+        // CoinGecko's free tier accepts `include_24hr_high_low` and then returns
+        // neither field, so these are genuinely null in the common case rather
+        // than an edge case. Do not fall back to `d.usd`.
+        high24h: num(d.usd_24h_high),
+        low24h: num(d.usd_24h_low),
         quoteVolume: d.usd_24h_vol ?? 0,
       };
     }

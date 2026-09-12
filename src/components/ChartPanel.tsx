@@ -381,6 +381,17 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   }, [candles, inds]);
 
   const last = candles[candles.length - 1];
+
+  /**
+   * High/Low prefer the 24h range but fall back to the latest candle — the
+   * same basis Open and Close already use. The 24h range is sometimes absent
+   * (CoinGecko's free tier omits it), so say which quantity is on screen rather
+   * than letting one label mean two different things silently.
+   */
+  const has24hRange = ticker?.high24h != null && ticker?.low24h != null;
+  const highValue = ticker?.high24h != null ? formatPrice(ticker.high24h) : last ? formatPrice(last.high) : "—";
+  const lowValue = ticker?.low24h != null ? formatPrice(ticker.low24h) : last ? formatPrice(last.low) : "—";
+  const rangeTitle = has24hRange ? "24h high / low" : "High / low of the latest candle (24h range unavailable)";
   const price = ticker?.price ?? last?.close;
   const change = ticker?.change24h ?? 0;
   const up = change >= 0;
@@ -460,8 +471,8 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       {/* OHLC stats */}
       <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-0.5 border-b border-tv-border px-4 py-1.5 text-[11px] tabular-nums">
         <Stat label="Open" value={last ? formatPrice(last.open) : "—"} />
-        <Stat label="High" value={ticker?.high24h ? formatPrice(ticker.high24h) : last ? formatPrice(last.high) : "—"} />
-        <Stat label="Low" value={ticker?.low24h ? formatPrice(ticker.low24h) : last ? formatPrice(last.low) : "—"} />
+        <Stat label="High" value={highValue} title={rangeTitle} />
+        <Stat label="Low" value={lowValue} title={rangeTitle} />
         <Stat label="Close" value={last ? formatPrice(last.close) : "—"} />
         <Stat label="24h Vol" value={ticker?.quoteVolume ? formatCompact(ticker.quoteVolume) : "—"} />
       </div>
@@ -487,9 +498,9 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <span className="flex items-center gap-1">
+    <span className="flex items-center gap-1" title={title}>
       <span className="text-tv-muted">{label}</span>
       <span className="font-medium text-tv-text">{value}</span>
     </span>
