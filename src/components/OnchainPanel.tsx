@@ -315,6 +315,11 @@ export default function OnchainPanel() {
           <StatBox label="Outflow" value={formatCompact(stats.outUsd)} tone="down" />
           <StatBox label="Net" value={formatCompact(stats.net)} tone={stats.net >= 0 ? "up" : "down"} />
         </div>
+        {/* State the valuation basis rather than leaving it to be assumed. These
+            are historical values, not today's price applied to old amounts. */}
+        <p className="mt-1.5 text-[10px] leading-tight text-tv-muted">
+          Valued at the price when each transfer was mined (±5 min), not today&rsquo;s price.
+        </p>
 
         <div className="mt-3">
           <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-tv-muted">
@@ -344,7 +349,10 @@ export default function OnchainPanel() {
                     >
                       {isOut ? "OUT" : "IN"}
                     </span>
-                    <span className="text-[12px] font-medium tabular-nums text-tv-text">
+                    <span
+                      className="text-[12px] font-medium tabular-nums text-tv-text"
+                      title="USD value at the time of transfer"
+                    >
                       {formatCompact(t.usd)}
                     </span>
                   </div>
@@ -521,7 +529,10 @@ export default function OnchainPanel() {
           </div>
 
           {loaded && !error && (
-            <div className="mt-2 flex items-center gap-1.5 rounded-md border border-tv-border bg-tv-bg px-2.5 py-1.5 text-[11px]">
+            <div
+              className="mt-2 flex items-center gap-1.5 rounded-md border border-tv-border bg-tv-bg px-2.5 py-1.5 text-[11px]"
+              title="Transfers from the last few minutes, valued at the current price"
+            >
               <span className="text-tv-muted">Window volume</span>
               <span className="font-semibold tabular-nums text-tv-text">{formatCompact(summary.total)}</span>
               <span className="text-tv-muted">· {summary.count} transfers</span>

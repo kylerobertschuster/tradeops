@@ -1,6 +1,7 @@
-import { fetchTickers } from "./market";
+import { fetchTickers, fetchKlines } from "./market";
 import { fetchWithTimeout, budgetMs } from "./http";
 import { formatTokenAmount } from "./format";
+import type { Candle } from "./types";
 
 /**
  * On-chain analytics (Ethereum/EVM) using public JSON-RPC endpoints.
@@ -103,6 +104,159 @@ async function latestBlock(): Promise<number> {
   return parseInt(r, 16);
 }
 
+/**
+ * Blocks per JSON-RPC batch. Public nodes commonly cap batch size, and a batch
+ * that is too large fails outright rather than truncating, so this stays
+ * conservative. 100 logged transfers therefore cost 2 round-trips. The
+ * 800-block inspector window yields far fewer *unique* blocks than transfers,
+ * so in practice it is 1-2 calls regardless.
+ */
+const RPC_BATCH_SIZE = 50;
+
+/** Fallback transfer age when a block's real timestamp is unavailable. */
+function inferredTimeMs(latest: number, block: number): number {
+  return Date.now() - (latest - block) * 12_000;
+}
+
+/**
+ * Resolve block numbers to unix-second timestamps, batched.
+ *
+ * `eth_getLogs` returns block numbers but never timestamps, so transfer ages
+ * used to be *inferred* from an assumed 12s block time. Batching is what makes
+ * the real values affordable: one round-trip per 50 blocks instead of one per
+ * block.
+ *
+ * Responses are matched by their `id` and never by array position. JSON-RPC 2.0
+ * states that a batch's responses "MAY be returned in any order", so positional
+ * matching would silently assign one block's time to another — wrong data
+ * rather than an error, which is the worst failure mode available to us.
+ *
+ * Unresolvable blocks are simply absent from the map and callers fall back to
+ * inference, so a batch-hostile provider degrades to the previous behaviour
+ * instead of breaking the endpoint.
+ */
+export async function getBlockTimestamps(blocks: number[]): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  const unique = Array.from(new Set(blocks)).filter((b) => Number.isInteger(b) && b >= 0);
+  if (unique.length === 0) return out;
+
+  const deadline = Date.now() + RPC_CHAIN_BUDGET_MS;
+  for (let i = 0; i < unique.length; i += RPC_BATCH_SIZE) {
+    const chunk = unique.slice(i, i + RPC_BATCH_SIZE);
+    for (const [block, secs] of await timestampBatch(chunk, deadline)) out.set(block, secs);
+  }
+  return out;
+}
+
+async function timestampBatch(blocks: number[], deadline: number): Promise<Map<number, number>> {
+  // The block number doubles as the request id, which makes the mapping back
+  // from a response unambiguous no matter how the provider orders the array.
+  const body = blocks.map((b) => ({
+    jsonrpc: "2.0",
+    id: b,
+    method: "eth_getBlockByNumber",
+    params: ["0x" + b.toString(16), false],
+  }));
+
+  for (const url of RPC_URLS) {
+    const timeoutMs = budgetMs(deadline, RPC_ATTEMPT_TIMEOUT_MS);
+    if (timeoutMs <= 0) break;
+    try {
+      const res = await fetchWithTimeout(
+        url,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+          cache: "no-store",
+        },
+        timeoutMs,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as unknown;
+      if (!Array.isArray(data)) throw new Error("batch response was not an array");
+
+      const found = new Map<number, number>();
+      for (const entry of data) {
+        const r = entry as { id?: unknown; result?: { timestamp?: unknown } | null };
+        const block = typeof r.id === "number" ? r.id : Number(r.id);
+        const ts = r.result?.timestamp;
+        if (!Number.isInteger(block) || typeof ts !== "string") continue;
+        const secs = Number.parseInt(ts, 16);
+        if (Number.isFinite(secs) && secs > 0) found.set(block, secs);
+      }
+      if (found.size > 0) return found;
+    } catch {
+      // try the next provider
+    }
+  }
+  return new Map();
+}
+
+/**
+ * Replace inferred transfer times with real block times, in place.
+ * Transfers whose block the RPC could not resolve keep the inferred value.
+ */
+async function applyBlockTimestamps(transfers: WhaleTransfer[]): Promise<void> {
+  if (transfers.length === 0) return;
+  const times = await getBlockTimestamps(transfers.map((t) => t.block));
+  if (times.size === 0) return;
+  for (const t of transfers) {
+    const real = times.get(t.block);
+    if (real != null) t.time = real * 1000;
+  }
+}
+
+/**
+ * Close of the candle covering `t` (unix seconds), or `null` if `t` predates
+ * the series. Binary search over candles that must be ascending by time, which
+ * every provider guarantees after normalization.
+ */
+export function priceAtTime(candles: Candle[], t: number): number | null {
+  let lo = 0;
+  let hi = candles.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (candles[mid].time <= t) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found === -1 ? null : candles[found].close;
+}
+
+/** 48 x 5m = 4h, comfortably covering the 800-block (~2.7h) inspector window. */
+const HISTORICAL_CANDLES = 48;
+
+/**
+ * Close-price series for every token that needs a market price, keyed by ticker
+ * symbol. Stablecoins are pinned to their peg and skipped. A symbol whose
+ * klines cannot be fetched is absent rather than fatal, and the caller falls
+ * back to spot for that token alone.
+ */
+async function historicalPriceSeries(): Promise<Record<string, Candle[]>> {
+  const symbols = Array.from(
+    new Set(TRACKED_TOKENS.filter((t) => t.priceSymbol).map((t) => t.priceSymbol!)),
+  );
+  const results = await Promise.all(
+    symbols.map(async (symbol) => {
+      try {
+        return [symbol, await fetchKlines(symbol, "5m", HISTORICAL_CANDLES)] as const;
+      } catch {
+        return [symbol, null] as const;
+      }
+    }),
+  );
+  const out: Record<string, Candle[]> = {};
+  for (const [symbol, candles] of results) {
+    if (candles && candles.length > 0) out[symbol] = candles;
+  }
+  return out;
+}
+
 function topicToAddress(topic: string | undefined): string {
   if (!topic) return "0x0000000000000000000000000000000000000000";
   return "0x" + topic.slice(26).toLowerCase();
@@ -168,7 +322,7 @@ export async function fetchWhaleTransfers(minUsd: number, blocks = 15): Promise<
             to: topicToAddress(log.topics[2]),
             txHash: log.transactionHash,
             block,
-            time: Date.now() - (latest - block) * 12000,
+            time: inferredTimeMs(latest, block),
           });
         }
       } catch {
@@ -177,18 +331,29 @@ export async function fetchWhaleTransfers(minUsd: number, blocks = 15): Promise<
     }),
   );
 
+  await applyBlockTimestamps(all);
+
   const sorted = all.sort((a, b) => b.usd - a.usd).slice(0, 100);
   feedCache.set(key, { t: Date.now(), data: sorted });
   return sorted;
 }
 
+/** Intermediate shape while logs are still being collected and priced. */
+type RawTransfer = {
+  token: TrackedToken;
+  amount: string;
+  from: string;
+  to: string;
+  txHash: string;
+  block: number;
+};
+
 export async function fetchAddressTransfers(address: string, blocks = 800): Promise<WhaleTransfer[]> {
   const latest = await latestBlock();
   const fromBlock = Math.max(0, latest - blocks);
-  const prices = await tokenPrices();
   const addr = address.toLowerCase();
   const topic = "0x" + addr.slice(2).padStart(64, "0");
-  const all: WhaleTransfer[] = [];
+  const raw: RawTransfer[] = [];
 
   await Promise.all(
     TRACKED_TOKENS.map(async (token) => {
@@ -218,20 +383,13 @@ export async function fetchAddressTransfers(address: string, blocks = 800): Prom
           } catch {
             continue;
           }
-          const amount = formatTokenAmount(value, token.decimals);
-          const price = prices[token.symbol];
-          const usd = price != null ? Number(amount) * price : 0;
-          const block = parseInt(log.blockNumber, 16);
-          all.push({
-            symbol: token.symbol,
-            name: token.name,
-            amount,
-            usd,
+          raw.push({
+            token,
+            amount: formatTokenAmount(value, token.decimals),
             from: topicToAddress(log.topics[1]),
             to: topicToAddress(log.topics[2]),
             txHash: log.transactionHash,
-            block,
-            time: Date.now() - (latest - block) * 12000,
+            block: parseInt(log.blockNumber, 16),
           });
         }
       } catch {
@@ -239,6 +397,47 @@ export async function fetchAddressTransfers(address: string, blocks = 800): Prom
       }
     }),
   );
+
+  if (raw.length === 0) return [];
+
+  // One batched timestamp call plus one kline series per priced token covers the
+  // entire window, so network cost is flat in the number of transfers rather
+  // than growing with them.
+  const [timestamps, series, spot] = await Promise.all([
+    getBlockTimestamps(raw.map((r) => r.block)),
+    historicalPriceSeries(),
+    tokenPrices(),
+  ]);
+
+  const all: WhaleTransfer[] = raw.map((r) => {
+    const { token } = r;
+    const realSecs = timestamps.get(r.block);
+    const time = realSecs != null ? realSecs * 1000 : inferredTimeMs(latest, r.block);
+
+    // Price each transfer at the candle it actually landed in rather than at
+    // today's spot. Over the ~2.7h this window covers that difference is real,
+    // and these values are summed into the panel's inflow/outflow/net headline,
+    // so the error would otherwise compound into the panel's main conclusion.
+    // Falls back to spot when the series is missing or predates the transfer.
+    let price = token.fixedPrice ?? spot[token.symbol];
+    if (token.priceSymbol) {
+      const candles = series[token.priceSymbol];
+      if (candles) price = priceAtTime(candles, Math.floor(time / 1000)) ?? price;
+    }
+    const usd = price != null ? Number(r.amount) * price : 0;
+
+    return {
+      symbol: token.symbol,
+      name: token.name,
+      amount: r.amount,
+      usd,
+      from: r.from,
+      to: r.to,
+      txHash: r.txHash,
+      block: r.block,
+      time,
+    };
+  });
 
   return all.sort((a, b) => b.block - a.block).slice(0, 100);
 }
