@@ -9,7 +9,7 @@ Free, open-source on-chain analytics + paper-trading terminal. Rebuild the
 professional experience (Chainalysis / Nansen / TradingView) without the
 paywalls. No API keys, no accounts, no bullshit.
 
-## Current State (v0.4 — hardening pass)
+## Current State (v0.5 — launch-ready hardening)
 
 Done:
 
@@ -37,6 +37,20 @@ Done:
   every third-party fetch bounded by a deadline + shared chain budget
   (`lib/http.ts`), and API routes rate limited via `src/proxy.ts`
   (Next 16's `middleware.ts` replacement) backed by `lib/ratelimit.ts`.
+- **P1 launch hardening (2026-09-12):**
+  - **Security headers** in `next.config.ts` — CSP, HSTS, X-Frame-Options,
+    nosniff, Referrer-Policy, Permissions-Policy.
+  - **83 Vitest tests** on the pure logic (`indicators`, `format`, `ratelimit`,
+    `symbols`) — hand-verified against Wilder's canonical RSI series rather
+    than snapshotted from our own output.
+  - **CI** (`.github/workflows/ci.yml`): lint + `tsc` + test + build on every
+    push, plus a blocking `npm audit --audit-level=high` job.
+  - **Responsive layout.** One DOM tree; below `lg` the three columns become
+    mutually exclusive panes behind a bottom tab bar, at `lg`+ the desktop
+    three-column terminal is unchanged. Verified in headless Chromium under
+    mobile emulation at 320/390/414/768/1440px across every pane and every
+    right-panel sub-tab.
+  - `package.json` 0.1.0 → 0.4.0, `engines.node >= 20.9.0`, `.nvmrc` = 22.
 
 Stack: Next.js 16 (App Router, TS) · Tailwind v4 · Lightweight Charts ·
 Zustand · public keyless market data APIs + public Ethereum RPC.
@@ -48,33 +62,39 @@ Nothing currently failing: `tsc`, `eslint` and `next build` are all clean.
 Still-open **readiness gaps** (audited 2026-09-12, none of these block local
 development):
 
-- **No tests and no CI.** Biggest structural gap — nothing guards `indicators.ts`,
-  `format.ts`, or the market-data normalisation.
-- **Desktop only.** Zero responsive breakpoints in any component (`h-dvh`
-  three-column terminal); unusable on a phone.
 - **Wrong numbers on-chain.** `onchain.ts` prices a ~15-block-old transfer at the
   *current* ticker price, infers `time` from `Date.now() - (latest-block)*12000`,
   and uses `Number(value) / 10 ** decimals` (loses precision on 18-decimal
-  tokens; needs BigInt/string math).
+  tokens; needs BigInt/string math). Arguably the most user-visible remaining
+  defect — the app is confident and wrong.
 - **Rate limiting is per-process.** Effective limit is `instances × limit` on a
-  multi-instance deploy; a durable limit needs a shared store (Upstash/Redis).
-- **No observability** (no error reporting/analytics/health check) and no
-  security headers (`next.config.ts` is empty — no CSP/HSTS/X-Frame-Options).
+  multi-instance deploy; a durable limit needs a shared store (Upstash/Redis)
+  behind the existing `checkRateLimit` interface. In-memory caches
+  (`feedCache`, holders `cache`) have the same per-instance caveat, so real
+  upstream load is higher than anything we have tested.
+- **No observability** — no error reporting, analytics, or health check.
 - **No deploy guide, ToS/privacy, or upstream data attribution** despite
   "self-hostable" being the pitch and Binance/CoinGecko/BlockScout having
-  attribution + rate terms.
+  attribution + rate terms. The public RPCs in `onchain.ts` explicitly forbid
+  production/high-volume use.
 - Paper trading is localStorage-only and trivially forgeable; P&L is client-side.
 - Missing OSS hygiene: CONTRIBUTING, CODE_OF_CONDUCT, issue templates,
-  `engines`/`.nvmrc`, sitemap/robots/OG image. `package.json` still says 0.1.0.
+  sitemap/robots/OG image.
+
+Note on the remaining CSP weakness: `script-src` still allows `'unsafe-inline'`,
+required by Next's inline bootstrap/hydration scripts. A nonce-based policy would
+force dynamic rendering on every page. The policy still pins `connect-src` to
+`'self'` and blocks object/base/frame abuse.
 
 ## Roadmap
 
 Launch readiness first, then features:
 
-- **P1:** CI running tsc + lint + build; Vitest on the pure logic; security
-  headers; mobile layout pass.
+- **P0 — done:** patched deps, lint, fetch deadlines, rate limiting.
+- **P1 — done:** security headers, Vitest + CI, mobile layout.
 - **P2:** deploy guide (Docker/Vercel), ToS + attribution page, error reporting,
-  BigInt-safe token math, honest labelling of client-side P&L.
+  BigInt-safe token math and honest transfer timestamps, shared-store rate
+  limiting, honest labelling of client-side P&L.
 - More indicators: Fibonacci, Ichimoku, order-flow heatmaps.
 - Accounts & cloud sync (optional login) — sync portfolios, labels, watchlists.
 - Alerts & price notifications.
