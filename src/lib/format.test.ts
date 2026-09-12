@@ -9,6 +9,7 @@ import {
   timeAgo,
   shortAddr,
   formatCompactNum,
+  formatTokenAmount,
 } from "./format";
 
 afterEach(() => {
@@ -152,5 +153,77 @@ describe("shortAddr", () => {
 
   it("handles empty input", () => {
     expect(shortAddr("")).toBe("");
+  });
+});
+
+describe("formatTokenAmount", () => {
+  // ERC-20 amounts arrive as base-unit integers. Above 2^53 the Number path
+  // silently rounds, which is the whole reason this helper exists.
+  it("converts base units exactly for 18-decimal tokens", () => {
+    expect(formatTokenAmount("1000000000000000000", 18)).toBe("1");
+    expect(formatTokenAmount("1500000000000000000", 18)).toBe("1.5");
+    expect(formatTokenAmount("1", 18)).toBe("0.000000000000000001");
+    expect(formatTokenAmount("0", 18)).toBe("0");
+  });
+
+  it("handles 6- and 8-decimal tokens", () => {
+    expect(formatTokenAmount("1500000", 6)).toBe("1.5");
+    expect(formatTokenAmount("1", 6)).toBe("0.000001");
+    expect(formatTokenAmount("100000000", 8)).toBe("1"); // WBTC
+    expect(formatTokenAmount("123456789", 8)).toBe("1.23456789");
+  });
+
+  it("stays exact where Number() would round", () => {
+    // 123.456789012345678901 tokens, the kind of value a large LINK transfer
+    // carries. Number() cannot represent this: it rounds to 123.45678901234568.
+    const raw = "123456789012345678901"; // 21 digits, > 2^53
+    expect(formatTokenAmount(raw, 18)).toBe("123.456789012345678901");
+    expect(String(Number(raw) / 10 ** 18)).toBe("123.45678901234568"); // the old path
+
+    // Well past the safe integer range entirely.
+    const huge = "123456789123456789123456789";
+    expect(formatTokenAmount(huge, 18)).toBe("123456789.123456789123456789");
+  });
+
+  it("trims trailing fractional zeros but keeps a trailing integer zero", () => {
+    expect(formatTokenAmount("10000000", 6)).toBe("10");
+    expect(formatTokenAmount("1230000", 6)).toBe("1.23");
+    expect(formatTokenAmount("100", 0)).toBe("100");
+  });
+
+  it("does not break when decimals is 0", () => {
+    // padStart(decimals + 1) then slicing by explicit index, rather than
+    // slice(0, -decimals) which is slice(0, 0) when decimals is 0.
+    expect(formatTokenAmount("42", 0)).toBe("42");
+    expect(formatTokenAmount("0", 0)).toBe("0");
+    expect(formatTokenAmount("007", 0)).toBe("7");
+  });
+
+  it("accepts bigint and normalises leading zeros", () => {
+    expect(formatTokenAmount(1500000000000000000n, 18)).toBe("1.5");
+    expect(formatTokenAmount("0001500000", 6)).toBe("1.5");
+  });
+
+  it("never emits exponent notation", () => {
+    // A 1-wei USDC transfer must not render as "1e-6".
+    for (const s of [formatTokenAmount("1", 6), formatTokenAmount("1", 18)]) {
+      expect(s).not.toMatch(/e/i);
+      expect(s).toMatch(/^0\.0*\d+$/);
+    }
+  });
+
+  it("returns a dash for junk instead of NaN leaking into the UI", () => {
+    expect(formatTokenAmount("0x1f", 18)).toBe("—");
+    expect(formatTokenAmount("", 18)).toBe("—");
+    expect(formatTokenAmount("1.5", 18)).toBe("—");
+    expect(formatTokenAmount("abc", 18)).toBe("—");
+    expect(formatTokenAmount("1", -1)).toBe("—");
+    expect(formatTokenAmount("1", 1.5)).toBe("—");
+  });
+
+  it("round-trips integers back to themselves at their own scale", () => {
+    const raw = 123456789012345678901n;
+    const shown = formatTokenAmount(raw, 18);
+    expect(BigInt(shown.replace(".", ""))).toBe(raw);
   });
 });

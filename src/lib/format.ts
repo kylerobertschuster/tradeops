@@ -44,6 +44,44 @@ export function formatQty(n: number | undefined | null): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 10 });
 }
 
+/**
+ * Convert a raw base-unit token amount to an exact decimal string.
+ *
+ * ERC-20 `Transfer` logs carry the amount as an integer in the token's smallest
+ * unit, and 18-decimal tokens routinely exceed `Number.MAX_SAFE_INTEGER`
+ * (9_007_199_254_740_991) — a mere 0.01 of an 18-decimal token is 10^16 base
+ * units. Going through `Number` silently rounds those, so this does the whole
+ * conversion in string space and loses nothing.
+ *
+ * Returns the exact decimal (e.g. `"123.456789012345678901"`), with trailing
+ * fractional zeros trimmed and no exponent notation. The result stays exact, so
+ * callers that only need an approximate value (a USD estimate, a compact
+ * display figure) can convert at the very end and be explicit about it.
+ */
+export function formatTokenAmount(raw: string | bigint, decimals: number): string {
+  if (!Number.isInteger(decimals) || decimals < 0) return "—";
+
+  const negative = typeof raw === "string" && raw.trim().startsWith("-");
+  const digits = (negative ? raw.trim().slice(1) : raw.toString().trim());
+  if (!/^\d+$/.test(digits)) return "—";
+
+  // Strip insignificant leading zeros, keeping at least one digit.
+  const int = (s: string) => s.replace(/^0+(?=\d)/, "");
+  const sign = negative ? "-" : "";
+
+  if (decimals === 0) return sign + int(digits);
+
+  // NB: pad to decimals+1 and slice from the right by explicit index rather
+  // than using -decimals. With decimals === 0, `slice(0, -0)` is `slice(0, 0)`
+  // and yields an empty integer part.
+  const padded = digits.padStart(decimals + 1, "0");
+  const cut = padded.length - decimals;
+  const integerPart = padded.slice(0, cut);
+  const fraction = padded.slice(cut).replace(/0+$/, "");
+
+  return sign + (fraction ? `${int(integerPart)}.${fraction}` : int(integerPart));
+}
+
 export function formatTime(ts: number): string {
   return new Date(ts).toLocaleString("en-US", {
     month: "short",
@@ -69,12 +107,16 @@ export function shortAddr(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
-export function formatCompactNum(n: number | undefined | null): string {
-  if (n == null || !isFinite(n)) return "—";
-  const abs = Math.abs(n);
-  if (abs >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
-  if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
-  return n.toFixed(2);
+export function formatCompactNum(n: number | string | undefined | null): string {
+  // Accepts an exact decimal string so callers holding a lossless token amount
+  // can pass it straight through; the compact form is 3 significant figures, so
+  // the narrowing here is far coarser than the precision the string preserves.
+  const v = typeof n === "string" ? Number(n) : n;
+  if (v == null || !isFinite(v)) return "—";
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}K`;
+  return v.toFixed(2);
 }

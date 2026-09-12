@@ -1,5 +1,6 @@
 import { fetchTickers } from "./market";
 import { fetchWithTimeout, budgetMs } from "./http";
+import { formatTokenAmount } from "./format";
 
 /**
  * On-chain analytics (Ethereum/EVM) using public JSON-RPC endpoints.
@@ -47,7 +48,13 @@ export const TRACKED_TOKENS: TrackedToken[] = [
 export type WhaleTransfer = {
   symbol: string;
   name: string;
-  amount: number;
+  /**
+   * Exact token amount as a decimal string, converted from base units without
+   * going through `Number`. Kept lossless because 18-decimal amounts exceed
+   * `Number.MAX_SAFE_INTEGER` (0.01 of such a token is already 10^16 base
+   * units). Narrow it at the point of display, never before.
+   */
+  amount: string;
   usd: number;
   from: string;
   to: string;
@@ -145,10 +152,11 @@ export async function fetchWhaleTransfers(minUsd: number, blocks = 15): Promise<
             continue;
           }
           if (value === 0n) continue;
-          const amount = Number(value) / 10 ** token.decimals;
+          // Exact decimal string; only the USD estimate below narrows to a float.
+          const amount = formatTokenAmount(value, token.decimals);
           const price = prices[token.symbol];
           if (price == null) continue;
-          const usd = amount * price;
+          const usd = Number(amount) * price;
           if (usd < minUsd) continue;
           const block = parseInt(log.blockNumber, 16);
           all.push({
@@ -210,9 +218,9 @@ export async function fetchAddressTransfers(address: string, blocks = 800): Prom
           } catch {
             continue;
           }
-          const amount = Number(value) / 10 ** token.decimals;
+          const amount = formatTokenAmount(value, token.decimals);
           const price = prices[token.symbol];
-          const usd = price != null ? amount * price : 0;
+          const usd = price != null ? Number(amount) * price : 0;
           const block = parseInt(log.blockNumber, 16);
           all.push({
             symbol: token.symbol,
