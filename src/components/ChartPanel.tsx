@@ -155,12 +155,16 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
     seriesRef.current = { candles: candleSeries };
 
     const onResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        });
-      }
+      const el = containerRef.current;
+      if (!el) return;
+      const width = el.clientWidth;
+      const height = el.clientHeight;
+      // A pane that is currently hidden (mobile tab switching) measures 0x0.
+      // Applying that would tear the chart down to nothing, so hold the last
+      // good size until the pane is laid out again — the observer fires once
+      // more when it is shown.
+      if (width <= 0 || height <= 0) return;
+      chart.applyOptions({ width, height });
     };
     const ro = new ResizeObserver(onResize);
     ro.observe(el);
@@ -385,18 +389,21 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Header */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-tv-border px-4">
-        <div className="flex items-baseline gap-2.5">
-          <span className="text-lg font-bold tracking-tight text-tv-text">{info.base}/USDT</span>
-          <span className="text-[12px] text-tv-muted">{info.name}</span>
-          <span className="rounded bg-tv-panel2 px-1.5 py-0.5 text-[10px] font-medium text-tv-muted">
+      {/* Header — the asset name and the "Indicators" label are dropped on
+          narrow screens; the symbol, price and interval are the essentials. */}
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-tv-border px-3 sm:px-4">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="text-base font-bold tracking-tight text-tv-text sm:text-lg">
+            {info.base}/USDT
+          </span>
+          <span className="hidden truncate text-[12px] text-tv-muted sm:inline">{info.name}</span>
+          <span className="shrink-0 rounded bg-tv-panel2 px-1.5 py-0.5 text-[10px] font-medium text-tv-muted">
             {INTERVAL_LABEL[interval]}
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <div className="text-right">
-            <div className={`text-xl font-semibold tabular-nums ${up ? "text-tv-up" : "text-tv-down"}`}>
+            <div className={`text-base font-semibold tabular-nums sm:text-xl ${up ? "text-tv-up" : "text-tv-down"}`}>
               {price ? formatPrice(price) : "—"}
             </div>
             <div className={`text-[11px] font-medium tabular-nums ${up ? "text-tv-up" : "text-tv-down"}`}>
@@ -413,7 +420,7 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" className="text-tv-muted">
                 <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
-              Indicators
+              <span className="hidden sm:inline">Indicators</span>
             </button>
             {menuOpen && (
               <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-md border border-tv-border bg-tv-panel2 py-1 shadow-xl">
