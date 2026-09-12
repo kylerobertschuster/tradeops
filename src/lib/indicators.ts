@@ -104,6 +104,141 @@ export function bollinger(
 
 type CandleLike = { high: number; low: number; close: number; volume: number };
 
+/** Fraction of total volume the value area must cover. */
+const VALUE_AREA_FRACTION = 0.7;
+
+export type VolumeProfileBin = {
+  /** Bin centre — the level a POC/VAH/VAL readout should quote. */
+  price: number;
+  /** Inclusive lower edge of the bin. */
+  low: number;
+  /** Inclusive upper edge of the bin. */
+  high: number;
+  volume: number;
+};
+
+export type VolumeProfileResult = {
+  bins: VolumeProfileBin[];
+  /** Point of Control: centre of the highest-volume bin. */
+  poc: number;
+  /** Value Area High: upper edge of the highest bin inside the value area. */
+  vah: number;
+  /** Value Area Low: lower edge of the lowest bin inside the value area. */
+  val: number;
+  totalVolume: number;
+  /** Height of one price bin. `0` when the window was perfectly flat. */
+  step: number;
+};
+
+/**
+ * Volume profile over a window of candles: how much traded at each *price*
+ * rather than when. Answers where the market accepted value (the POC), the
+ * range containing 70% of it (VAH/VAL), and which levels are thin.
+ *
+ * **The uniform-distribution caveat.** Volume profile wants tick data, which
+ * keyless candle endpoints do not give us. Given only OHLCV, this spreads each
+ * bar's volume evenly across the price bins it touched. That is the standard
+ * approximation, and it is an approximation: a bar that spent all its time at
+ * its high and merely wicked to its low is treated as uniform. So the output is
+ * a faithful summary of *where price traded*, not an exchange-grade accepted-
+ * value measurement, and it should be labelled as derived wherever it is shown.
+ *
+ * Bars with no volume are excluded before the price range is measured — a bar
+ * that gapped through prices without trading says nothing about accepted value
+ * and should not stretch the profile.
+ *
+ * Returns `null` when there is nothing to profile.
+ */
+export function volumeProfile(
+  candles: CandleLike[],
+  binCount = 60,
+): VolumeProfileResult | null {
+  if (!Number.isInteger(binCount) || binCount < 1) return null;
+
+  const usable = candles.filter(
+    (c) =>
+      Number.isFinite(c.high) &&
+      Number.isFinite(c.low) &&
+      Number.isFinite(c.volume) &&
+      c.volume > 0 &&
+      c.high >= c.low,
+  );
+  if (usable.length === 0) return null;
+
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const c of usable) {
+    if (c.low < lo) lo = c.low;
+    if (c.high > hi) hi = c.high;
+  }
+
+  // A perfectly flat window collapses to a single bin rather than dividing by
+  // zero; `step === 0` is reported so callers can tell the two cases apart.
+  const step = hi > lo ? (hi - lo) / binCount : 0;
+  const n = step > 0 ? binCount : 1;
+  const volumes = new Array<number>(n).fill(0);
+
+  const idxOf = (p: number) => {
+    if (step <= 0) return 0;
+    const i = Math.floor((p - lo) / step);
+    return i < 0 ? 0 : i >= n ? n - 1 : i;
+  };
+
+  for (const c of usable) {
+    const a = idxOf(c.low);
+    const b = idxOf(c.high);
+    const span = b - a + 1;
+    const perBin = c.volume / span;
+    for (let i = a; i <= b; i++) volumes[i] += perBin;
+  }
+
+  const bins: VolumeProfileBin[] = volumes.map((volume, i) => ({
+    low: step > 0 ? lo + i * step : lo,
+    high: step > 0 ? lo + (i + 1) * step : hi,
+    price: step > 0 ? lo + (i + 0.5) * step : lo,
+    volume,
+  }));
+
+  let totalVolume = 0;
+  let pocIdx = 0;
+  for (let i = 0; i < n; i++) {
+    totalVolume += volumes[i];
+    // Strict `>` so ties resolve to the lower price, deterministically.
+    if (volumes[i] > volumes[pocIdx]) pocIdx = i;
+  }
+
+  // Grow the value area outwards from the POC, always taking the richer side.
+  // This is the one-bin-at-a-time form of the standard TPO expansion; the
+  // classic Market Profile version compares bins in pairs. The two differ only
+  // marginally, and this form is simpler to verify, so we take it deliberately.
+  const target = totalVolume * VALUE_AREA_FRACTION;
+  let current = volumes[pocIdx];
+  let up = pocIdx + 1;
+  let down = pocIdx - 1;
+  while (current < target) {
+    const upVol = up < n ? volumes[up] : null;
+    const downVol = down >= 0 ? volumes[down] : null;
+    if (upVol == null && downVol == null) break;
+    const takeUp = upVol == null ? false : downVol == null ? true : upVol >= downVol;
+    if (takeUp) {
+      current += upVol as number;
+      up++;
+    } else {
+      current += downVol as number;
+      down--;
+    }
+  }
+
+  return {
+    bins,
+    poc: bins[pocIdx].price,
+    vah: bins[up - 1].high,
+    val: bins[down + 1].low,
+    totalVolume,
+    step,
+  };
+}
+
 /** Cumulative session VWAP over the loaded candles. */
 export function vwap(candles: CandleLike[]): (number | null)[] {
   const out: (number | null)[] = new Array(candles.length).fill(null);
