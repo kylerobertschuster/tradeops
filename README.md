@@ -17,7 +17,7 @@ Professional-grade market analytics (Chainalysis, TRM Labs, Nansen, TradingView)
 - **TradingView-style charting** — powered by TradingView's own open-source [Lightweight Charts](https://github.com/tradingview/lightweight-charts). Candlesticks, volume, and overlay indicators.
 - **Indicators** — Volume, SMA 20/50, EMA 20/50, Bollinger Bands (20, 2), RSI 14, MACD (12, 26, 9), and VWAP, with 7 timeframes (`1m` → `1w`).
 - **Live market data** — multi-provider with automatic failover: Binance → Bybit → Coinbase (candles) and Binance → CoinGecko (tickers). **No API key required.**
-- **On-chain analytics** — live whale feed (ERC-20 transfers ≥ $100K across USDC/USDT/DAI/WETH/WBTC/LINK/UNI/AAVE via public RPC, no API key), click-to-inspect any address (inflow/outflow/net + full transfer history), **holder analytics** (top-50 holders per token, concentration share, known-entity names via ENS/verified/tags, total supply, holder count, market cap), and **wallet labeling** (tag addresses as Exchange / Whale / VC / MEV / Exploiter / Contract, persisted locally). One click through to Etherscan for any tx or address.
+- **On-chain analytics** — live whale feed (ERC-20 transfers with an adjustable **≥ $100K / $1M / $5M / $10M** threshold, defaulting to ≥ $1M, across USDC/USDT/DAI/WETH/WBTC/LINK/UNI/AAVE via public RPC, no API key), click-to-inspect any address (inflow/outflow/net + full transfer history), **holder analytics** (top-50 holders per token, concentration share, known-entity names via ENS/verified/tags, total supply, holder count, market cap), and **wallet labeling** (tag addresses as Exchange / Whale / VC / MEV / Exploiter / Contract, persisted locally). One click through to Etherscan for any tx or address.
 - **Watchlist & search** — curated top assets in the sidebar plus fuzzy symbol search.
 - **Paper trading** — start with a virtual **$100,000**, trade at market with realistic 0.1% taker fees, and track live P&L, open positions, and order history. Persisted locally in your browser.
 - **Dark, professional UI** — modeled on TradingView's exact palette.
@@ -37,6 +37,14 @@ Production build:
 npm run build
 npm start
 ```
+
+### Rate limits
+
+API routes are rate limited per client to protect the free upstream providers
+they depend on (see `src/lib/ratelimit.ts`). Responses carry
+`X-RateLimit-Limit` / `X-RateLimit-Remaining` headers, and a throttled request
+returns `429` with `Retry-After`. Limits are tracked per process, so a
+multi-instance deployment effectively enforces `instances × limit`.
 
 ## Tech stack
 
