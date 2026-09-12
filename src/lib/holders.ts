@@ -1,4 +1,5 @@
 import { TRACKED_TOKENS } from "./onchain";
+import { fetchWithTimeout } from "./http";
 
 /**
  * Holder analytics via BlockScout's public, keyless Ethereum API.
@@ -58,7 +59,7 @@ export type HolderStats = {
 const cache = new Map<string, { t: number; data: HolderStats }>();
 
 async function getJson(path: string): Promise<unknown> {
-  const res = await fetch(`${BLOCKSCOUT}${path}`, {
+  const res = await fetchWithTimeout(`${BLOCKSCOUT}${path}`, {
     headers: { accept: "application/json" },
     cache: "no-store",
   });

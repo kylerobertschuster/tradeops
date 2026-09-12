@@ -1,5 +1,6 @@
 import type { Candle, Interval, Ticker } from "./types";
 import { ALL_SYMBOLS } from "./symbols";
+import { fetchWithTimeout, budgetMs, UPSTREAM_TIMEOUT_MS } from "./http";
 
 /**
  * Server-side market data layer.
@@ -38,10 +39,17 @@ const COINBASE_GRAN: Record<Interval, number> = {
 
 const cache = new Map<string, { t: number; data: unknown }>();
 
-async function cachedJson(url: string, ttlMs = 5000): Promise<unknown> {
+/** Overall budget for a full provider-failover chain (see `budgetMs`). */
+const CHAIN_BUDGET_MS = 12_000;
+
+async function cachedJson(url: string, ttlMs = 5000, timeoutMs = UPSTREAM_TIMEOUT_MS): Promise<unknown> {
   const hit = cache.get(url);
   if (hit && Date.now() - hit.t < ttlMs) return hit.data;
-  const res = await fetch(url, { headers: { accept: "application/json" }, cache: "no-store" });
+  const res = await fetchWithTimeout(
+    url,
+    { headers: { accept: "application/json" }, cache: "no-store" },
+    timeoutMs,
+  );
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${new URL(url).host}`);
   const data = await res.json();
   cache.set(url, { t: Date.now(), data });
@@ -52,10 +60,10 @@ async function cachedJson(url: string, ttlMs = 5000): Promise<unknown> {
   return data;
 }
 
-async function binanceKlines(symbol: string, interval: Interval, limit: number): Promise<Candle[] | null> {
+async function binanceKlines(symbol: string, interval: Interval, limit: number, timeoutMs: number): Promise<Candle[] | null> {
   try {
     const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${BINANCE_IV[interval]}&limit=${limit}`;
-    const data = (await cachedJson(url, 5000)) as unknown[];
+    const data = (await cachedJson(url, 5000, timeoutMs)) as unknown[];
     if (!Array.isArray(data) || data.length === 0) return null;
     return data.map((k) => {
       const r = k as number[];
@@ -73,10 +81,10 @@ async function binanceKlines(symbol: string, interval: Interval, limit: number):
   }
 }
 
-async function bybitKlines(symbol: string, interval: Interval, limit: number): Promise<Candle[] | null> {
+async function bybitKlines(symbol: string, interval: Interval, limit: number, timeoutMs: number): Promise<Candle[] | null> {
   try {
     const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=${BYBIT_IV[interval]}&limit=${limit}`;
-    const data = (await cachedJson(url, 5000)) as { result?: { list?: string[][] } };
+    const data = (await cachedJson(url, 5000, timeoutMs)) as { result?: { list?: string[][] } };
     const list = data?.result?.list;
     if (!Array.isArray(list) || list.length === 0) return null;
     return list
@@ -94,11 +102,11 @@ async function bybitKlines(symbol: string, interval: Interval, limit: number): P
   }
 }
 
-async function coinbaseKlines(symbol: string, interval: Interval, limit: number): Promise<Candle[] | null> {
+async function coinbaseKlines(symbol: string, interval: Interval, limit: number, timeoutMs: number): Promise<Candle[] | null> {
   try {
     const base = symbol.replace(/USDT$/, "");
     const url = `https://api.exchange.coinbase.com/products/${base}-USD/candles?granularity=${COINBASE_GRAN[interval]}`;
-    const data = (await cachedJson(url, 5000)) as unknown[];
+    const data = (await cachedJson(url, 5000, timeoutMs)) as unknown[];
     if (!Array.isArray(data) || data.length === 0) return null;
     // Coinbase order: [time, low, high, open, close, volume], newest first
     return data
@@ -115,18 +123,22 @@ async function coinbaseKlines(symbol: string, interval: Interval, limit: number)
 
 export async function fetchKlines(symbol: string, interval: Interval, limit = 500): Promise<Candle[]> {
   const providers = [binanceKlines, bybitKlines, coinbaseKlines];
+  const deadline = Date.now() + CHAIN_BUDGET_MS;
   for (const provider of providers) {
-    const result = await provider(symbol, interval, limit);
+    // Stop before starting an attempt we cannot finish within the budget.
+    const timeoutMs = budgetMs(deadline);
+    if (timeoutMs <= 0) break;
+    const result = await provider(symbol, interval, limit, timeoutMs);
     if (result && result.length > 0) return result;
   }
   throw new Error(`No market data available for ${symbol}`);
 }
 
-async function binanceTickers(symbols: string[]): Promise<Record<string, Ticker> | null> {
+async function binanceTickers(symbols: string[], timeoutMs: number): Promise<Record<string, Ticker> | null> {
   try {
     const q = encodeURIComponent(JSON.stringify(symbols));
     const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${q}`;
-    const data = (await cachedJson(url, 3000)) as Array<Record<string, string>>;
+    const data = (await cachedJson(url, 3000, timeoutMs)) as Array<Record<string, string>>;
     if (!Array.isArray(data)) return null;
     const out: Record<string, Ticker> = {};
     for (const t of data) {
@@ -147,7 +159,7 @@ async function binanceTickers(symbols: string[]): Promise<Record<string, Ticker>
   }
 }
 
-async function coingeckoTickers(symbols: string[]): Promise<Record<string, Ticker> | null> {
+async function coingeckoTickers(symbols: string[], timeoutMs: number): Promise<Record<string, Ticker> | null> {
   try {
     const infos = symbols
       .map((s) => ALL_SYMBOLS.find((x) => x.symbol === s))
@@ -155,7 +167,7 @@ async function coingeckoTickers(symbols: string[]): Promise<Record<string, Ticke
     if (infos.length === 0) return null;
     const ids = infos.map((i) => i.cgId).join(",");
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_high_low=true&include_24hr_vol=true`;
-    const data = (await cachedJson(url, 5000)) as Record<string, {
+    const data = (await cachedJson(url, 5000, timeoutMs)) as Record<string, {
       usd?: number;
       usd_24h_change?: number;
       usd_24h_high?: number;
@@ -184,9 +196,12 @@ async function coingeckoTickers(symbols: string[]): Promise<Record<string, Ticke
 
 export async function fetchTickers(symbols: string[]): Promise<Record<string, Ticker>> {
   if (symbols.length === 0) return {};
-  const binance = await binanceTickers(symbols);
+  const deadline = Date.now() + CHAIN_BUDGET_MS;
+  const binance = await binanceTickers(symbols, budgetMs(deadline));
   if (binance) return binance;
-  const cg = await coingeckoTickers(symbols);
+  const remaining = budgetMs(deadline);
+  if (remaining <= 0) return {};
+  const cg = await coingeckoTickers(symbols, remaining);
   if (cg) return cg;
   return {};
 }

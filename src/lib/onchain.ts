@@ -1,4 +1,5 @@
 import { fetchTickers } from "./market";
+import { fetchWithTimeout, budgetMs } from "./http";
 
 /**
  * On-chain analytics (Ethereum/EVM) using public JSON-RPC endpoints.
@@ -55,16 +56,30 @@ export type WhaleTransfer = {
   time: number;
 };
 
+/** Per-attempt deadline for a single public RPC node. */
+const RPC_ATTEMPT_TIMEOUT_MS = 5_000;
+
+/** Overall budget across all RPC fallbacks before we give up. */
+const RPC_CHAIN_BUDGET_MS = 12_000;
+
 async function rpc(method: string, params: unknown[]): Promise<unknown> {
+  const deadline = Date.now() + RPC_CHAIN_BUDGET_MS;
   let lastErr: unknown;
   for (const url of RPC_URLS) {
+    // Stop before starting an attempt we cannot finish within the budget.
+    const timeoutMs = budgetMs(deadline, RPC_ATTEMPT_TIMEOUT_MS);
+    if (timeoutMs <= 0) break;
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
-        cache: "no-store",
-      });
+      const res = await fetchWithTimeout(
+        url,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
+          cache: "no-store",
+        },
+        timeoutMs,
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { error?: { message?: string }; result?: unknown };
       if (data.error) throw new Error(data.error.message ?? "rpc error");
