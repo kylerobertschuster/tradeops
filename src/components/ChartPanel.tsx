@@ -15,6 +15,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/api";
+import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { sma, ema, bollinger, rsi, macd, vwap } from "@/lib/indicators";
 import { findSymbol } from "@/lib/symbols";
 import { formatPrice, formatPct, formatCompact } from "@/lib/format";
@@ -106,11 +107,10 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
         if (alive) setLoadedKey(`${symbol}:${interval}`);
       }
     }
-    load();
-    const timer = setInterval(load, 15000);
+    const stopPolling = startVisiblePolling(load, POLL_MS.klines);
     return () => {
       alive = false;
-      clearInterval(timer);
+      stopPolling();
     };
   }, [symbol, interval]);
 

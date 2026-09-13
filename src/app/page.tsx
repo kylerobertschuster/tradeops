@@ -7,6 +7,7 @@ import ChartPanel from "@/components/ChartPanel";
 import RightPanel from "@/components/RightPanel";
 import MobileNav, { type Pane } from "@/components/MobileNav";
 import { fetchTickers } from "@/lib/api";
+import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { CURATED } from "@/lib/symbols";
 import { usePaperStore, STARTING_BALANCE } from "@/store/paperTrading";
 import { useLabelsStore } from "@/store/labels";
@@ -44,11 +45,10 @@ export default function Home() {
       if (alive) setTickers((prev) => ({ ...prev, ...t }));
     }
 
-    load();
-    const timer = setInterval(load, 5000);
+    const stopPolling = startVisiblePolling(load, POLL_MS.tickers);
     return () => {
       alive = false;
-      clearInterval(timer);
+      stopPolling();
     };
   }, [symbolsKey]);
 

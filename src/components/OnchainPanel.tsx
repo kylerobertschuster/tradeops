@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { fetchWhales, fetchAddressTransfers, fetchHolders, type WhaleTransfer, type HolderStats } from "@/lib/api";
+import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import type { Holder } from "@/lib/holders";
 import { useLabelsStore, type WalletLabel } from "@/store/labels";
 import { formatCompact, formatCompactNum, shortAddr, timeAgo } from "@/lib/format";
@@ -184,11 +185,10 @@ export default function OnchainPanel() {
         }
       }
     }
-    load();
-    const timer = setInterval(load, 20_000);
+    const stopPolling = startVisiblePolling(load, POLL_MS.whales);
     return () => {
       alive = false;
-      clearInterval(timer);
+      stopPolling();
     };
   }, [minUsd]);
 
@@ -219,11 +219,10 @@ export default function OnchainPanel() {
         if (alive) setHolderData({ symbol: holderSymbol, stats: null });
       }
     }
-    load();
-    const timer = setInterval(load, 120_000);
+    const stopPolling = startVisiblePolling(load, POLL_MS.holders);
     return () => {
       alive = false;
-      clearInterval(timer);
+      stopPolling();
     };
   }, [holderSymbol]);
 
