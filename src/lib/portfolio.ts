@@ -60,6 +60,24 @@ export function portfolioValue(
 }
 
 /**
+ * Order notionals are floored to 8 decimal places, the way a venue floors an
+ * order step.
+ *
+ * The flooring is not cosmetic. In real arithmetic `cash / (1 + FEE_RATE)` is
+ * the exact largest notional, but the fee is then recomputed in floating
+ * point, and the round trip does not land back on `cash`: for a $100,000
+ * balance it lands on `100000.00000000001` — *over* the balance, so the order
+ * is rejected. The Max button failed for the single most common account size.
+ * Flooring one step below the exact answer restores the invariant without a
+ * fudge factor.
+ *
+ * Divided by 1e8 rather than multiplied by 1e-8: 1e8 is exactly representable
+ * as a double and 1e-8 is not, so this direction adds one rounding instead of
+ * two.
+ */
+const NOTIONAL_PRECISION = 1e8;
+
+/**
  * The largest notional the account can actually commit on one side.
  *
  * A buy is capped by cash *less the taker fee*, because the fee is charged on
@@ -73,6 +91,11 @@ export function maxNotional(
   qty: number,
   mark: number,
 ): number {
-  if (side === "buy") return cash / (1 + FEE_RATE);
+  if (side === "buy") {
+    const notional = cash / (1 + FEE_RATE);
+    // Math.floor, never Math.round: rounding up can only reintroduce the
+    // overflow this exists to prevent.
+    return Math.floor(notional * NOTIONAL_PRECISION) / NOTIONAL_PRECISION;
+  }
   return qty * mark;
 }
