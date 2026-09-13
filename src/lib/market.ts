@@ -53,6 +53,16 @@ const COINBASE_GRAN: Record<Interval, number> = {
 const cache = new Map<string, { t: number; data: unknown }>();
 
 /**
+ * Drop every cached provider response.
+ *
+ * Exported for tests: this cache lives at module scope, so without a way to
+ * clear it a success in one test answers the same URL in the next one.
+ */
+export function clearMarketCache(): void {
+  cache.clear();
+}
+
+/**
  * Normalize a provider timestamp to unix seconds, which is what `Candle.time`
  * promises. Providers disagree: Binance and Coinbase report seconds, Bybit
  * reports milliseconds. The two scales are ~1000x apart (seconds reach ~1.8e9
@@ -85,10 +95,35 @@ async function cachedJson(url: string, ttlMs = 5000, timeoutMs = UPSTREAM_TIMEOU
   return data;
 }
 
+/**
+ * Binance hosts, tried in order.
+ *
+ * `api.binance.com` answers HTTP 451 ("Service unavailable from a restricted
+ * location") from US egress, which is where this app's Cloudflare Worker runs,
+ * so asking it first spent the budget before falling through to another
+ * provider entirely. `data-api.binance.vision` is Binance's public market-data
+ * mirror: the same public endpoints, no API key, and not geo-restricted. The
+ * main host stays as a second attempt for regions where the mirror is blocked.
+ */
+const BINANCE_HOSTS = ["https://data-api.binance.vision", "https://api.binance.com"];
+
+/** Fetch `path` from the first Binance host that answers. */
+async function binanceJson(path: string, ttlMs: number, timeoutMs: number): Promise<unknown> {
+  let lastError: unknown = new Error("no Binance host attempted");
+  for (const host of BINANCE_HOSTS) {
+    try {
+      return await cachedJson(`${host}${path}`, ttlMs, timeoutMs);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
 async function binanceKlines(symbol: string, interval: Interval, limit: number, timeoutMs: number): Promise<Candle[] | null> {
   try {
-    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${BINANCE_IV[interval]}&limit=${limit}`;
-    const data = (await cachedJson(url, 5000, timeoutMs)) as unknown[];
+    const path = `/api/v3/klines?symbol=${symbol}&interval=${BINANCE_IV[interval]}&limit=${limit}`;
+    const data = (await binanceJson(path, 5000, timeoutMs)) as unknown[];
     if (!Array.isArray(data) || data.length === 0) return null;
     return data.map((k) => {
       const r = k as number[];
@@ -162,8 +197,15 @@ export async function fetchKlines(symbol: string, interval: Interval, limit = 50
 async function binanceTickers(symbols: string[], timeoutMs: number): Promise<Record<string, Ticker> | null> {
   try {
     const q = encodeURIComponent(JSON.stringify(symbols));
-    const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${q}`;
-    const data = (await cachedJson(url, 3000, timeoutMs)) as Array<Record<string, string>>;
+    // Binance answers 400 `{"code":-1121,"msg":"Invalid symbol."}` for the whole
+    // batch if even one symbol is unlisted (MKR and FTM were both delisted from
+    // spot), so a miss here must fall through to the next provider rather than
+    // failing every symbol in the watchlist.
+    const data = (await binanceJson(
+      `/api/v3/ticker/24hr?symbols=${q}`,
+      3000,
+      timeoutMs,
+    )) as Array<Record<string, string>>;
     if (!Array.isArray(data)) return null;
     const out: Record<string, Ticker> = {};
     for (const t of data) {
@@ -222,14 +264,134 @@ async function coingeckoTickers(symbols: string[], timeoutMs: number): Promise<R
   }
 }
 
+/**
+ * OKX spot tickers: every listed pair in one response, so this fallback costs
+ * a single subrequest no matter how large the watchlist is.
+ */
+async function okxTickers(symbols: string[], timeoutMs: number): Promise<Record<string, Ticker> | null> {
+  try {
+    const wanted = new Set(symbols);
+    const data = (await cachedJson(
+      "https://www.okx.com/api/v5/market/tickers?instType=SPOT",
+      5000,
+      timeoutMs,
+    )) as {
+      data?: Array<{
+        instId?: string;
+        last?: string;
+        open24h?: string;
+        high24h?: string;
+        low24h?: string;
+        volCcy24h?: string;
+      }>;
+    };
+    const rows = data?.data;
+    if (!Array.isArray(rows)) return null;
+    const out: Record<string, Ticker> = {};
+    for (const r of rows) {
+      // OKX writes spot pairs as `BTC-USDT`; our catalog uses `BTCUSDT`.
+      const sym = (r.instId ?? "").replace("-", "");
+      if (!wanted.has(sym)) continue;
+      const price = num(r.last);
+      if (price == null) continue;
+      const open = num(r.open24h);
+      out[sym] = {
+        symbol: sym,
+        base: sym.replace(/USDT$/, ""),
+        price,
+        // OKX returns no change field, so derive it from the 24h open.
+        change24h: open ? ((price - open) / open) * 100 : 0,
+        high24h: num(r.high24h),
+        low24h: num(r.low24h),
+        // `volCcy24h` is already quoted in USDT for spot pairs.
+        quoteVolume: num(r.volCcy24h) ?? 0,
+      };
+    }
+    return Object.keys(out).length ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Coinbase spot stats.
+ *
+ * This is one subrequest per symbol, so it runs after the bulk providers — but
+ * it is the one fallback verified reachable from the Worker when Binance is
+ * geo-blocked, which is exactly when it is needed. Chunked because Coinbase's
+ * public API tolerates roughly 10 requests/second.
+ */
+async function coinbaseTickers(symbols: string[], timeoutMs: number): Promise<Record<string, Ticker> | null> {
+  try {
+    const pairs = symbols.filter((s) => s.endsWith("USDT")).slice(0, 60);
+    if (pairs.length === 0) return null;
+    const out: Record<string, Ticker> = {};
+    const CHUNK = 8;
+    for (let i = 0; i < pairs.length; i += CHUNK) {
+      if (timeoutMs <= 0) break;
+      const rows = await Promise.all(
+        pairs.slice(i, i + CHUNK).map(async (sym) => {
+          try {
+            const base = sym.replace(/USDT$/, "");
+            const d = (await cachedJson(
+              `https://api.exchange.coinbase.com/products/${base}-USD/stats`,
+              5000,
+              timeoutMs,
+            )) as { open?: string; high?: string; low?: string; last?: string; volume?: string };
+            const price = num(d?.last);
+            if (price == null) return null;
+            const open = num(d?.open);
+            const ticker: Ticker = {
+              symbol: sym,
+              base,
+              price,
+              change24h: open ? ((price - open) / open) * 100 : 0,
+              high24h: num(d?.high),
+              low24h: num(d?.low),
+              // Coinbase reports base volume, so this is a quote estimate.
+              quoteVolume: (num(d?.volume) ?? 0) * price,
+            };
+            return ticker;
+          } catch {
+            // A 404 for an unlisted pair is expected; skip just that symbol.
+            return null;
+          }
+        }),
+      );
+      for (const r of rows) if (r) out[r.symbol] = r;
+    }
+    return Object.keys(out).length ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every ticker provider declined to answer.
+ *
+ * This exists so an exhausted upstream can be reported as a failure. The route
+ * used to answer 200 with `{}`, which the client rendered as "no prices" while
+ * looking exactly like success — a dead provider stayed invisible in
+ * production for as long as nobody checked the payload.
+ */
+export class UpstreamExhaustedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UpstreamExhaustedError";
+  }
+}
+
 export async function fetchTickers(symbols: string[]): Promise<Record<string, Ticker>> {
   if (symbols.length === 0) return {};
   const deadline = Date.now() + CHAIN_BUDGET_MS;
-  const binance = await binanceTickers(symbols, budgetMs(deadline));
-  if (binance) return binance;
-  const remaining = budgetMs(deadline);
-  if (remaining <= 0) return {};
-  const cg = await coingeckoTickers(symbols, remaining);
-  if (cg) return cg;
-  return {};
+  const providers = [binanceTickers, okxTickers, coinbaseTickers, coingeckoTickers];
+  for (const provider of providers) {
+    const remaining = budgetMs(deadline);
+    if (remaining <= 0) break;
+    const result = await provider(symbols, remaining);
+    if (result && Object.keys(result).length > 0) return result;
+  }
+  throw new UpstreamExhaustedError(
+    `No ticker provider returned data for ${symbols.length} symbol(s)`,
+  );
 }

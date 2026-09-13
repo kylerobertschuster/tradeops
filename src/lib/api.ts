@@ -15,7 +15,10 @@ export async function fetchKlines(symbol: string, interval: Interval, limit = 50
 export async function fetchTickers(symbols: string[]): Promise<Record<string, Ticker>> {
   if (symbols.length === 0) return {};
   const res = await fetch(`/api/tickers?symbols=${encodeURIComponent(symbols.join(","))}`);
-  if (!res.ok) return {};
+  // A non-200 means every provider declined. Returning `{}` here would be
+  // indistinguishable from "no prices", so the caller is told instead and can
+  // decide to keep the last good values on screen.
+  if (!res.ok) throw new Error(`Tickers request failed (${res.status})`);
   return (await res.json()) as Record<string, Ticker>;
 }
 

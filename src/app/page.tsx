@@ -17,6 +17,8 @@ export default function Home() {
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [interval, setIntervalState] = useState<Interval>("15m");
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
+  /** True while every provider is refusing, so the board may be stale. */
+  const [stale, setStale] = useState(false);
   /** Only meaningful below `lg`; on desktop all three panels are shown. */
   const [pane, setPane] = useState<Pane>("chart");
 
@@ -41,8 +43,17 @@ export default function Home() {
     let alive = true;
 
     async function load() {
-      const t = await fetchTickers(symbols);
-      if (alive) setTickers((prev) => ({ ...prev, ...t }));
+      try {
+        const t = await fetchTickers(symbols);
+        if (!alive) return;
+        setTickers((prev) => ({ ...prev, ...t }));
+        setStale(false);
+      } catch {
+        // Keep the last good prices rather than blanking the board. Stale and
+        // labelled beats empty and silent, and the old prices are still the
+        // best available estimate of the market.
+        if (alive) setStale(true);
+      }
     }
 
     const stopPolling = startVisiblePolling(load, POLL_MS.tickers);
@@ -89,6 +100,12 @@ export default function Home() {
         pnlPct={pnlPct}
         onSelectSymbol={selectSymbol}
       />
+      {stale && (
+        <div className="shrink-0 border-b border-tv-down/40 bg-tv-down/10 px-3 py-1 text-[11px] text-tv-down">
+          Live prices unavailable — every market data provider refused the request. Showing the last
+          known values.
+        </div>
+      )}
       <div className="flex min-h-0 flex-1">
         <div
           className={`min-h-0 flex-1 flex-col lg:w-60 lg:flex-none ${paneClass("markets")}`}
