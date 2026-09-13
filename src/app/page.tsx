@@ -10,7 +10,8 @@ import { fetchTickers } from "@/lib/api";
 import { createLiveFeed, type LiveFeed } from "@/lib/live";
 import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { CURATED } from "@/lib/symbols";
-import { usePaperStore, STARTING_BALANCE } from "@/store/paperTrading";
+import { usePaperStore } from "@/store/paperTrading";
+import { portfolioValue } from "@/lib/portfolio";
 import { useLabelsStore } from "@/store/labels";
 import type { Interval, Ticker } from "@/lib/types";
 
@@ -103,15 +104,10 @@ export default function Home() {
     };
   }, [live, symbolsKey]);
 
-  const { equity, pnl, pnlPct } = useMemo(() => {
-    let equity = cash;
-    for (const p of Object.values(positions)) {
-      const mark = tickers[p.symbol]?.price ?? p.avgPrice;
-      equity += p.qty * mark;
-    }
-    const pnl = equity - STARTING_BALANCE;
-    return { equity, pnl, pnlPct: (pnl / STARTING_BALANCE) * 100 };
-  }, [cash, positions, tickers]);
+  const { equity, pnl, pnlPct, priced } = useMemo(
+    () => portfolioValue(cash, positions, tickers),
+    [cash, positions, tickers],
+  );
 
   /**
    * Panels below `lg` show one at a time; from `lg` up they are all visible.
@@ -138,6 +134,7 @@ export default function Home() {
         equity={equity}
         pnl={pnl}
         pnlPct={pnlPct}
+        priced={priced}
         onSelectSymbol={selectSymbol}
       />
       {stale && (

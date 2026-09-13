@@ -22,11 +22,19 @@ type Props = {
   equity: number;
   pnl: number;
   pnlPct: number;
+  /** False when some position had no live price and was valued at cost. */
+  priced: boolean;
   onSelectSymbol: (symbol: string) => void;
 };
 
-export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, onSelectSymbol }: Props) {
+export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, priced, onSelectSymbol }: Props) {
   const up = pnl >= 0;
+  // A tilde marks totals that include a position valued at cost rather than at
+  // market, so an approximate figure cannot pass for an exact one.
+  const approx = priced ? "" : "~";
+  const approxTitle = priced
+    ? undefined
+    : "Some positions have no live price and are valued at cost, so this is approximate.";
   return (
     // Wraps to two rows on narrow screens (brand + search + P&L, then the
     // timeframes) and collapses back to the original single row at `lg`. The
@@ -74,17 +82,21 @@ export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, onSe
       {/* Account chip */}
       <div className="flex shrink-0 items-center gap-2 text-right lg:gap-3">
         {/* Equity is the first thing to go when space is tight; P&L matters more. */}
-        <div className="hidden leading-tight sm:block">
+        <div className="hidden leading-tight sm:block" title={approxTitle}>
           <div className="text-[10px] uppercase tracking-wide text-tv-muted">Equity</div>
-          <div className="text-[13px] font-semibold tabular-nums text-tv-text">{formatUsd(equity)}</div>
+          <div className="text-[13px] font-semibold tabular-nums text-tv-text">
+            {approx}
+            {formatUsd(equity)}
+          </div>
         </div>
-        <div className="leading-tight">
+        <div className="leading-tight" title={approxTitle}>
           <div className="text-[10px] uppercase tracking-wide text-tv-muted">P&L</div>
           <div
             className={`rounded px-1.5 py-0.5 text-[13px] font-semibold tabular-nums ${
               up ? "bg-tv-up/15 text-tv-up" : "bg-tv-down/15 text-tv-down"
             }`}
           >
+            {approx}
             {formatUsd(pnl)} ({formatPct(pnlPct)})
           </div>
         </div>

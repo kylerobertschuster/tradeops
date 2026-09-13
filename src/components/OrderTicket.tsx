@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { usePaperStore, FEE_RATE } from "@/store/paperTrading";
+import { maxNotional } from "@/lib/portfolio";
 import { formatPrice, formatUsd, formatQty } from "@/lib/format";
 
 type Props = {
@@ -26,13 +27,26 @@ export default function OrderTicket({ symbol, base, price }: Props) {
   const qty = mark > 0 ? notional / mark : 0;
   const fee = notional * FEE_RATE;
 
-  const available = side === "buy" ? cash : (position?.qty ?? 0) * mark;
+  // Buying power is the balance *less the taker fee*, because the fee is
+  // charged on top of the order. Sizing a 100% buy off raw cash produces an
+  // order whose total is cash x 1.001, which is rejected as insufficient — so
+  // the Max button could never succeed.
+  const available =
+    side === "buy" ? cash / (1 + FEE_RATE) : (position?.qty ?? 0) * mark;
 
   const pctOptions = useMemo(() => [0.25, 0.5, 0.75, 1], []);
 
   const setPct = (p: number) => {
     if (!available || available <= 0) return;
-    setAmount((available * p).toFixed(2));
+    // 100% means exactly that. Rounding the notional to cents would leave dust
+    // in a position sold in full (or push a buy past the balance), so the full
+    // size uses the exact figure and the rest round *down* rather than to
+    // nearest, which is the direction that cannot overshoot.
+    if (p === 1) {
+      setAmount(String(available));
+      return;
+    }
+    setAmount((Math.floor(available * p * 100) / 100).toFixed(2));
   };
 
   const submit = () => {

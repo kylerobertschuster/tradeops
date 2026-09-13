@@ -3,8 +3,9 @@
 import { useMemo, useState } from "react";
 import OrderTicket from "./OrderTicket";
 import OnchainPanel from "./OnchainPanel";
-import { usePaperStore, STARTING_BALANCE } from "@/store/paperTrading";
+import { usePaperStore } from "@/store/paperTrading";
 import { findSymbol } from "@/lib/symbols";
+import { portfolioValue } from "@/lib/portfolio";
 import type { Ticker } from "@/lib/types";
 import { formatUsd, formatPrice, formatQty, formatPct, formatTime } from "@/lib/format";
 
@@ -26,15 +27,10 @@ export default function RightPanel({ symbol, ticker, tickers }: Props) {
 
   const positionList = useMemo(() => Object.values(positions), [positions]);
 
-  const { equity, pnl, pnlPct, unrealized } = useMemo(() => {
-    let equity = cash;
-    for (const p of positionList) {
-      const mark = tickers[p.symbol]?.price ?? p.avgPrice;
-      equity += p.qty * mark;
-    }
-    const pnl = equity - STARTING_BALANCE;
-    return { equity, pnl, pnlPct: (pnl / STARTING_BALANCE) * 100, unrealized: equity - cash };
-  }, [cash, positionList, tickers]);
+  const { equity, pnl, pnlPct, unrealized, priced } = useMemo(
+    () => portfolioValue(cash, positions, tickers),
+    [cash, positions, tickers],
+  );
 
   const up = pnl >= 0;
   const info = findSymbol(symbol);
@@ -59,7 +55,15 @@ export default function RightPanel({ symbol, ticker, tickers }: Props) {
             Reset
           </button>
         </div>
-        <div className="mt-2 text-[26px] font-semibold tabular-nums leading-none text-tv-text">
+        <div
+          className="mt-2 text-[26px] font-semibold tabular-nums leading-none text-tv-text"
+          title={
+            priced
+              ? undefined
+              : "Some positions have no live price and are valued at cost, so this is approximate."
+          }
+        >
+          {priced ? "" : "~"}
           {formatUsd(equity)}
         </div>
         <div className="mt-1.5 flex items-center gap-2 text-[12px]">
@@ -68,6 +72,7 @@ export default function RightPanel({ symbol, ticker, tickers }: Props) {
               up ? "bg-tv-up/15 text-tv-up" : "bg-tv-down/15 text-tv-down"
             }`}
           >
+            {priced ? "" : "~"}
             {formatUsd(pnl)} ({formatPct(pnlPct)})
           </span>
           <span className="text-tv-muted">P&L</span>
@@ -123,17 +128,23 @@ export default function RightPanel({ symbol, ticker, tickers }: Props) {
           ) : (
             <div className="space-y-2">
               {positionList.map((p) => {
-                const mark = tickers[p.symbol]?.price ?? p.avgPrice;
-                const value = p.qty * mark;
                 const cost = p.qty * p.avgPrice;
-                const pnl = value - cost;
+                // Mark to market only. Valuing an unmarked position at its own
+                // cost basis reports a confident $0.00 P&L, which reads as "no
+                // change" when the truth is "unknown" — and closing it would
+                // execute at a price the market never offered.
+                const live = tickers[p.symbol]?.price;
+                const value = live === undefined ? null : p.qty * live;
+                const pnl = value === null ? null : value - cost;
                 return (
                   <div key={p.symbol} className="rounded-md border border-tv-border bg-tv-bg p-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-[13px] font-semibold text-tv-text">{p.base}/USDT</span>
                       <button
-                        onClick={() => closePosition(p.symbol, mark)}
-                        className="rounded bg-tv-down/15 px-2 py-0.5 text-[11px] font-medium text-tv-down hover:bg-tv-down/30"
+                        onClick={() => live !== undefined && closePosition(p.symbol, live)}
+                        disabled={live === undefined}
+                        title={live === undefined ? "Waiting for a live price" : undefined}
+                        className="rounded bg-tv-down/15 px-2 py-0.5 text-[11px] font-medium text-tv-down hover:bg-tv-down/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-tv-down/15"
                       >
                         Close
                       </button>
@@ -141,17 +152,21 @@ export default function RightPanel({ symbol, ticker, tickers }: Props) {
                     <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] tabular-nums">
                       <Row label="Size" value={`${formatQty(p.qty)} ${p.base}`} />
                       <Row label="Avg price" value={formatPrice(p.avgPrice)} />
-                      <Row label="Mark" value={formatPrice(mark)} />
-                      <Row label="Value" value={formatUsd(value)} />
+                      <Row label="Mark" value={live === undefined ? "—" : formatPrice(live)} />
+                      <Row label="Value" value={value === null ? "—" : formatUsd(value)} />
                     </div>
                     <div className="mt-1.5 flex items-center justify-between border-t border-tv-border pt-1.5 text-[12px]">
                       <span className="text-tv-muted">Unrealized P&L</span>
                       <span
                         className={`font-semibold tabular-nums ${
-                          pnl >= 0 ? "text-tv-up" : "text-tv-down"
+                          pnl === null
+                            ? "text-tv-muted"
+                            : pnl >= 0
+                              ? "text-tv-up"
+                              : "text-tv-down"
                         }`}
                       >
-                        {formatUsd(pnl)} ({formatPct((pnl / cost) * 100)})
+                        {pnl === null ? "—" : `${formatUsd(pnl)} (${formatPct((pnl / cost) * 100)})`}
                       </span>
                     </div>
                   </div>
