@@ -13,6 +13,14 @@ import { checkRateLimit, clientIp, limitForPath } from "@/lib/ratelimit";
  */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Uptime monitors are exempt. A monitor that trips our own limiter would
+  // report an outage that is not happening, and the endpoint does no upstream
+  // work, so there is nothing here worth protecting.
+  if (pathname === "/api/health") {
+    return NextResponse.next();
+  }
+
   const limit = limitForPath(pathname);
 
   // Keyed per client *and* per path so a burst on one route cannot starve the
