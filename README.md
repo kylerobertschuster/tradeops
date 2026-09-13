@@ -46,6 +46,81 @@ they depend on (see `src/lib/ratelimit.ts`). Responses carry
 returns `429` with `Retry-After`. Limits are tracked per process, so a
 multi-instance deployment effectively enforces `instances × limit`.
 
+## Deployment
+
+### Cloudflare Workers (recommended)
+
+TradeOps deploys to Cloudflare Workers through
+[`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare), which runs the
+Next.js server itself on Workers. Commercial use is permitted on both the Free
+and Paid plans — unlike some hobby tiers, which restrict free usage to
+non-commercial projects.
+
+```bash
+npx wrangler login   # once
+npm run preview      # build + serve locally under workerd
+npm run deploy       # build + publish
+```
+
+The Worker is named in `wrangler.jsonc`. If you rename it, update the
+`WORKER_SELF_REFERENCE` service binding to match.
+
+`GET /api/health` returns `{ ok: true }` for uptime monitors. It is exempt from
+rate limiting so a monitor cannot report a `429` as an outage, and it does no
+upstream work so it never spends the request budget below.
+
+#### Fitting inside the free tier
+
+Workers Free allows **100,000 requests/day**, and **a cache hit still counts as
+a request** — Cloudflare spares cache hits the CPU time, not the request. Edge
+caching therefore cannot buy back any of that budget, so the only lever is how
+many requests the browser makes. TradeOps keeps that low deliberately:
+
+| Rule | Effect |
+| ---- | ------ |
+| Background tabs stop polling (`src/lib/polling.ts`) | A hidden tab costs nothing |
+| Cadences of 15s / 30s / 30s / 120s | Up to ~12,200 requests/day per foreground tab |
+
+The worst case is the chart plus the on-chain tab — `RightPanel` only mounts
+`OnchainPanel` when that tab is active, so the default market/chart view costs
+~8,600/day. Measured in a browser against `wrangler dev`: a foreground tab made
+3 requests in 36 seconds, and a hidden tab made **zero**.
+
+So the free tier covers roughly **eight always-open foreground tabs** in the
+worst case — more when tabs are hidden for part of the day, as they usually
+are.
+`src/lib/polling.test.ts` fails if a future change shortens these cadences past
+that budget, so the hosting arithmetic cannot silently regress.
+
+Beyond that, Workers Paid is **$5/month** including 10M requests and 30M
+CPU-milliseconds, then $0.30 per additional million requests — around 27
+always-open tabs before any overage.
+
+#### Caveats worth knowing
+
+- **Node.js middleware is experimental on Workers.** The adapter prints a
+  warning at build time, and the rate limiter in `src/proxy.ts` runs on that
+  path. It works — verified under `wrangler dev`, 30 requests then `429` — but it
+  is not a supported code path, so treat it as best-effort rather than a
+  security boundary.
+- **The rate limiter is per-process**, which on Workers means per-isolate, so
+  the effective limit is `isolates × limit`. Durable limiting needs a shared
+  store such as Durable Objects or KV.
+- `@opennextjs/cloudflare` imports `esbuild` without declaring it as a
+  dependency, so it only resolves when npm happens to hoist it to the root.
+  `wrangler` and `@opennextjs/aws` pin different esbuild versions, npm declines
+  to hoist, and the build dies with `Cannot find package 'esbuild'`. `esbuild`
+  is pinned as a devDependency for that reason; drop it once the adapter
+  declares its own dependency.
+
+### Any Node host
+
+`npm run build && npm start` serves the standard Next.js server anywhere Node
+20.9+ runs. The rate limiter and the upstream caches are in-process, so a single
+always-on instance behaves better than a serverless or multi-instance
+deployment: limits are enforced exactly, and cached upstream responses survive
+between requests instead of dying with each cold start.
+
 ## Tech stack
 
 | Layer     | Technology                                              |

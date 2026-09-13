@@ -55,6 +55,45 @@ Done:
 Stack: Next.js 16 (App Router, TS) · Tailwind v4 · Lightweight Charts ·
 Zustand · public keyless market data APIs + public Ethereum RPC.
 
+## Hosting
+
+Deploys to **Cloudflare Workers** through `@opennextjs/cloudflare`
+(`npm run deploy`). Chosen because commercial use is allowed on both the Free
+and Paid plans, unlike Vercel Hobby, which is non-commercial only — and because
+Workers Paid is $5/mo against Vercel Pro's $20. Netlify's free tier does permit
+commercial use, but its adapter does not yet confirm Next 16 support.
+
+Verified under `wrangler dev`, not assumed:
+
+- `opennextjs-cloudflare build` succeeds on Next 16.3.5. The adapter requires
+  `next >=16.3.3`, which is the real reason the earlier 16.3.1 → 16.3.5 bump
+  mattered.
+- The CSP and other security headers from `next.config.ts` survive intact.
+- The `proxy.ts` rate limiter works on Workers even though middleware is an
+  experimental path: 30 requests, then `429`.
+- `/api/klines`, `/api/whales`, `/api/holders`, `/api/symbols` all return live
+  data under workerd, so `AbortSignal.any` and `nodejs_compat` are fine.
+- The bundle is 14.5 MB uncompressed against a 64 MiB limit; Cloudflare no
+  longer imposes a compressed-size limit.
+
+Request volume, not CPU, is the binding constraint. Workers Free allows 100,000
+requests/day and **counts cache hits as requests** — Cloudflare spares them only
+the CPU time — so edge caching cannot buy back quota. The only lever is how many
+requests the browser makes, hence `src/lib/polling.ts`: a hidden tab stops
+polling entirely, and the cadences are 15s/30s/30s/120s. Measured in a real
+browser: 3 requests per 36 s in a foreground tab, **0 while hidden**, and one
+refresh per endpoint on return. That is ~12,200/day worst case (~8,600 for the
+default view), so roughly eight always-open tabs on the free tier.
+`polling.test.ts` fails if the cadences are shortened past that budget.
+
+Two caveats worth remembering. Workers middleware is documented as experimental
+and unofficially maintained, so the rate limiter there is best-effort rather
+than a security boundary. And `@opennextjs/cloudflare` imports `esbuild`
+without declaring it as a dependency, which breaks the build whenever npm
+declines to hoist it — which is exactly what happens here, since `wrangler` and
+`@opennextjs/aws` pin different esbuild versions. `esbuild` is pinned as a
+devDependency as a workaround.
+
 ## Known Issues / What's Broke
 
 Nothing currently failing: `tsc`, `eslint` and `next build` are all clean.
@@ -92,9 +131,10 @@ Launch readiness first, then features:
 
 - **P0 — done:** patched deps, lint, fetch deadlines, rate limiting.
 - **P1 — done:** security headers, Vitest + CI, mobile layout.
-- **P2:** deploy guide (Docker/Vercel), ToS + attribution page, error reporting,
-  BigInt-safe token math and honest transfer timestamps, shared-store rate
-  limiting, honest labelling of client-side P&L.
+- **P2:** deploy guide — Cloudflare Workers done, Docker/self-host still to do;
+  ToS + attribution page, error reporting, shared-store rate limiting, honest
+  labelling of client-side P&L. (BigInt-safe token math and honest transfer
+  timestamps are done.)
 - More indicators: Fibonacci, Ichimoku, order-flow heatmaps.
 - Accounts & cloud sync (optional login) — sync portfolios, labels, watchlists.
 - Alerts & price notifications.

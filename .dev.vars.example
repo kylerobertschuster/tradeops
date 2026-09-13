@@ -1,0 +1,3 @@
+# Local-only variables for `npm run preview` (wrangler dev).
+# Copy this file to `.dev.vars` — that one is gitignored.
+NEXTJS_ENV=development
