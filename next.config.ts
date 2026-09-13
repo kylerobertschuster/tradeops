@@ -9,18 +9,35 @@ import type { NextConfig } from "next";
  * not worth trading away static generation for this app yet.
  *
  * Even with that allowance the policy earns its keep: it pins `connect-src` to
- * our own origin (all data reaches the client through `/api/*`), and blocks
- * plugin content, base-tag hijacking, and framing.
+ * our own origin plus the one websocket host, and blocks plugin content,
+ * base-tag hijacking, and framing.
  */
+const isDev = process.env.NODE_ENV !== "production";
+
+/**
+ * React calls `eval()` in development to reconstruct callstacks across
+ * environments, and refuses to start without it — so a policy that omits
+ * `'unsafe-eval'` silently prevents hydration in `next dev`, leaving a page
+ * that renders from the server and then does nothing. Production never uses
+ * `eval()`, so this allowance is scoped to development only.
+ */
+const scriptSrc = isDev
+  ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+  : "script-src 'self' 'unsafe-inline'";
+
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  scriptSrc,
   "style-src 'self' 'unsafe-inline'",
   // next/font self-hosts its files, so no external font origins are needed.
   "font-src 'self' data:",
   "img-src 'self' data: blob:",
-  // The client only ever calls our own API routes.
-  "connect-src 'self'",
+  // Our own API routes, plus Binance's public market-data websocket. Live
+  // prices and candles stream from the exchange straight to the browser, so
+  // they cost nothing against the Worker's request quota. Without this origin
+  // in the allowlist the socket is refused and the app silently falls back to
+  // REST polling.
+  "connect-src 'self' wss://data-stream.binance.vision",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

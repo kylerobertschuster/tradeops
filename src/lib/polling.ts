@@ -1,25 +1,34 @@
 /**
  * Poll cadences, and the rule that keeps them affordable.
  *
+ * These are **fallback** cadences. Prices and candles normally arrive over a
+ * websocket straight from the exchange (`src/lib/live.ts`), which never touches
+ * the Worker and so costs nothing against the request quota. Polling only runs
+ * when that socket is unavailable, or for the chart's candle history, which is
+ * re-fetched to recompute indicators.
+ *
  * On Cloudflare Workers Free we get 100,000 requests/day, and a cache hit
  * still counts as a request — Cloudflare bills cache hits as requests and only
  * spares them the CPU time. Edge caching therefore buys back nothing from the
  * request budget; the only lever is how many requests the browser makes.
  *
- * At the original cadences (5s / 15s / 20s / 120s) one foreground tab spent
- * ~28,000 requests a day, so the entire free tier covered roughly three open
- * tabs. Two rules fix that:
+ * At the original cadences (5s / 15s / 20s / 120s), with every price polled
+ * over REST, one foreground tab spent ~28,000 requests a day, so the entire
+ * free tier covered roughly three open tabs. Three rules fix that:
  *
- *   1. A hidden tab makes no requests. Nobody can see a background tab, so
+ *   1. Streaming replaces polling. While the socket is live the ticker poll is
+ *      skipped entirely, which is most of the traffic.
+ *   2. A hidden tab makes no requests. Nobody can see a background tab, so
  *      every request it issues is wasted. Polling stops when the document
  *      hides and resumes with an immediate refresh when it is visible again.
- *   2. The cadences are slower. 15s / 30s / 30s / 120s is still live enough for
- *      a dashboard and costs up to ~12,200 requests/day per foreground tab in
- *      the worst case (chart plus the on-chain tab; `RightPanel` only mounts
- *      `OnchainPanel` when that tab is active, so the default view is ~8,600).
+ *   3. The fallback cadences are slower. 15s / 30s / 30s / 120s is still live
+ *      enough for a dashboard and bounds the cost when streaming is down.
  *
- * `polling.test.ts` fails if a future edit shortens these past the budget, so
- * the hosting maths cannot silently regress.
+ * What is left while streaming is the chart's candle history (klines, 30s) and
+ * the on-chain panels, which `RightPanel` only mounts while that tab is open:
+ * about 2,900 requests/day on the default view, ~5,800 with the on-chain tab
+ * open. `polling.test.ts` fails if a future edit shortens these past the
+ * budget, so the hosting maths cannot silently regress.
  */
 
 export const POLL_MS = {

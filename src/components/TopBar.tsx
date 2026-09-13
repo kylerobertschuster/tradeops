@@ -6,6 +6,7 @@ import { INTERVALS } from "@/lib/types";
 import { formatUsd, formatPct } from "@/lib/format";
 
 const LABELS: Record<Interval, string> = {
+  "1s": "1s",
   "1m": "1m",
   "5m": "5m",
   "15m": "15m",

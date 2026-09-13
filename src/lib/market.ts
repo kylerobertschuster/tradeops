@@ -21,6 +21,7 @@ function num(v: unknown): number | null {
 }
 
 const BINANCE_IV: Record<Interval, string> = {
+  "1s": "1s",
   "1m": "1m",
   "5m": "5m",
   "15m": "15m",
@@ -30,7 +31,12 @@ const BINANCE_IV: Record<Interval, string> = {
   "1w": "1w",
 };
 
-const BYBIT_IV: Record<Interval, string> = {
+// Bybit and Coinbase do not offer 1-second candles (Bybit's floor is 1m, and
+// Coinbase's `/candles` granularity starts at 60s). `null` means "this provider
+// cannot serve that interval" so the chain skips it instead of asking for a
+// different interval and silently mislabelling the result.
+const BYBIT_IV: Record<Interval, string | null> = {
+  "1s": null,
   "1m": "1",
   "5m": "5",
   "15m": "15",
@@ -40,7 +46,8 @@ const BYBIT_IV: Record<Interval, string> = {
   "1w": "W",
 };
 
-const COINBASE_GRAN: Record<Interval, number> = {
+const COINBASE_GRAN: Record<Interval, number | null> = {
+  "1s": null,
   "1m": 60,
   "5m": 300,
   "15m": 900,
@@ -142,8 +149,10 @@ async function binanceKlines(symbol: string, interval: Interval, limit: number, 
 }
 
 async function bybitKlines(symbol: string, interval: Interval, limit: number, timeoutMs: number): Promise<Candle[] | null> {
+  const intervalCode = BYBIT_IV[interval];
+  if (intervalCode === null) return null;
   try {
-    const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=${BYBIT_IV[interval]}&limit=${limit}`;
+    const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=${intervalCode}&limit=${limit}`;
     const data = (await cachedJson(url, 5000, timeoutMs)) as { result?: { list?: string[][] } };
     const list = data?.result?.list;
     if (!Array.isArray(list) || list.length === 0) return null;
@@ -163,9 +172,11 @@ async function bybitKlines(symbol: string, interval: Interval, limit: number, ti
 }
 
 async function coinbaseKlines(symbol: string, interval: Interval, limit: number, timeoutMs: number): Promise<Candle[] | null> {
+  const granularity = COINBASE_GRAN[interval];
+  if (granularity === null) return null;
   try {
     const base = symbol.replace(/USDT$/, "");
-    const url = `https://api.exchange.coinbase.com/products/${base}-USD/candles?granularity=${COINBASE_GRAN[interval]}`;
+    const url = `https://api.exchange.coinbase.com/products/${base}-USD/candles?granularity=${granularity}`;
     const data = (await cachedJson(url, 5000, timeoutMs)) as unknown[];
     if (!Array.isArray(data) || data.length === 0) return null;
     // Coinbase order: [time, low, high, open, close, volume], newest first

@@ -78,17 +78,26 @@ many requests the browser makes. TradeOps keeps that low deliberately:
 
 | Rule | Effect |
 | ---- | ------ |
+| Prices stream over a websocket (`src/lib/live.ts`) | Live prices cost **zero** Worker requests |
+| REST polling is only a fallback | Ticker polling is skipped entirely while streaming |
 | Background tabs stop polling (`src/lib/polling.ts`) | A hidden tab costs nothing |
-| Cadences of 15s / 30s / 30s / 120s | Up to ~12,200 requests/day per foreground tab |
+| Cadences of 15s / 30s / 30s / 120s (fallback only) | Bounds the cost when streaming is unavailable |
 
-The worst case is the chart plus the on-chain tab — `RightPanel` only mounts
-`OnchainPanel` when that tab is active, so the default market/chart view costs
-~8,600/day. Measured in a browser against `wrangler dev`: a foreground tab made
-3 requests in 36 seconds, and a hidden tab made **zero**.
+The watchlist and the chart connect straight to Binance's public market-data
+websocket from the browser. That traffic never reaches the Worker, so it is
+free — and it is what makes a **1-second chart** affordable, since polling at
+1s would be 86,400 requests/day per open tab.
 
-So the free tier covers roughly **eight always-open foreground tabs** in the
-worst case — more when tabs are hidden for part of the day, as they usually
-are.
+What remains is the chart's candle history, which is re-fetched every 30s to
+recompute indicators. That is roughly **2,900 requests/day** for the default
+market/chart view, rising to about **5,800/day** with the on-chain tab open
+(`RightPanel` only mounts `OnchainPanel` when that tab is active). A hidden tab
+costs nothing.
+
+So the free tier covers on the order of **17 always-open foreground tabs**, or
+**34** on the default view — far more when tabs are hidden for part of the day,
+as they usually are.
+
 `src/lib/polling.test.ts` fails if a future change shortens these cadences past
 that budget, so the hosting arithmetic cannot silently regress.
 

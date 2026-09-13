@@ -15,6 +15,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/api";
+import { createLiveFeed, type LiveFeed, type LiveStatus } from "@/lib/live";
 import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { sma, ema, bollinger, rsi, macd, vwap } from "@/lib/indicators";
 import { findSymbol } from "@/lib/symbols";
@@ -49,6 +50,7 @@ const IND_MENU: { group: string; items: { key: IndKey; label: string }[] }[] = [
 ];
 
 const INTERVAL_LABEL: Record<Interval, string> = {
+  "1s": "1S",
   "1m": "1m",
   "5m": "5m",
   "15m": "15m",
@@ -72,6 +74,10 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
 
   const [candles, setCandles] = useState<Candle[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState<LiveStatus>("connecting");
+  const feedRef = useRef<LiveFeed | null>(null);
+  /** The symbol the chart is actually showing; guards against late messages. */
+  const activeSymbolRef = useRef(symbol);
   // Key of the last symbol/interval that finished loading. `loading` is derived
   // from it so we never have to setState synchronously inside the fetch effect.
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
@@ -112,6 +118,59 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       alive = false;
       stopPolling();
     };
+  }, [symbol, interval]);
+
+  /**
+   * Live candles, streamed straight from the exchange.
+   *
+   * `update()` amends or appends the newest bar, so the visible range and any
+   * pan or zoom the user has done survive. `setData()` — used for the history
+   * load — replaces the series wholesale and would fight the user every second.
+   *
+   * Indicators still recompute on the REST refresh rather than on every tick:
+   * they are derived from the whole series, and until the candle closes the
+   * only thing a per-second recompute changes is the last point of each line.
+   */
+  useEffect(() => {
+    const feed = createLiveFeed({
+      onTicker: () => {},
+      onKline: (sym, candle) => {
+        // A message already in flight when the user switches symbols would
+        // otherwise draw the previous asset's candle onto this chart.
+        if (sym !== activeSymbolRef.current) return;
+        const series = seriesRef.current["candles"];
+        if (!series) return;
+        const time = candle.time as UTCTimestamp;
+        series.update({
+          time,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+        });
+        const volume = seriesRef.current["volume"] as ISeriesApi<"Histogram"> | undefined;
+        if (volume) {
+          volume.update({
+            time,
+            value: candle.volume,
+            color:
+              candle.close >= candle.open ? "rgba(8,153,129,0.45)" : "rgba(242,54,69,0.45)",
+          });
+        }
+      },
+      onStatus: setLive,
+    });
+    feedRef.current = feed;
+    return () => {
+      feed.close();
+      feedRef.current = null;
+    };
+  }, []);
+
+  // Switching symbol or interval re-subscribes over the open socket.
+  useEffect(() => {
+    activeSymbolRef.current = symbol;
+    feedRef.current?.setChart(symbol, interval);
   }, [symbol, interval]);
 
   // Create chart once
@@ -410,6 +469,29 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
           <span className="hidden truncate text-[12px] text-tv-muted sm:inline">{info.name}</span>
           <span className="shrink-0 rounded bg-tv-panel2 px-1.5 py-0.5 text-[10px] font-medium text-tv-muted">
             {INTERVAL_LABEL[interval]}
+          </span>
+          <span
+            className="flex shrink-0 items-center gap-1.5 self-center rounded bg-tv-panel2 px-1.5 py-0.5 text-[10px] font-medium text-tv-muted"
+            title={
+              live === "live"
+                ? "Streaming live from the exchange"
+                : live === "connecting"
+                  ? "Connecting to the live stream\u2026"
+                  : "Live stream unavailable \u2014 polling instead"
+            }
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                live === "live"
+                  ? "animate-pulse bg-tv-up"
+                  : live === "connecting"
+                    ? "bg-tv-muted"
+                    : "bg-tv-down"
+              }`}
+            />
+            <span className="hidden sm:inline">
+              {live === "live" ? "LIVE" : live === "connecting" ? "\u2026" : "POLL"}
+            </span>
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import TopBar from "@/components/TopBar";
 import Watchlist from "@/components/Watchlist";
 import ChartPanel from "@/components/ChartPanel";
 import RightPanel from "@/components/RightPanel";
 import MobileNav, { type Pane } from "@/components/MobileNav";
 import { fetchTickers } from "@/lib/api";
+import { createLiveFeed, type LiveFeed } from "@/lib/live";
 import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { CURATED } from "@/lib/symbols";
 import { usePaperStore, STARTING_BALANCE } from "@/store/paperTrading";
@@ -19,6 +20,9 @@ export default function Home() {
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   /** True while every provider is refusing, so the board may be stale. */
   const [stale, setStale] = useState(false);
+  /** True while the websocket is delivering prices. */
+  const [live, setLive] = useState(false);
+  const feedRef = useRef<LiveFeed | null>(null);
   /** Only meaningful below `lg`; on desktop all three panels are shown. */
   const [pane, setPane] = useState<Pane>("chart");
 
@@ -38,7 +42,43 @@ export default function Home() {
     return Array.from(set).sort().join(",");
   }, [symbol, positions]);
 
+  /**
+   * One websocket for the whole session.
+   *
+   * It is created once rather than depending on the symbol list, because
+   * changing symbols re-subscribes over the open socket — rebuilding the feed
+   * would drop and redial the connection every time the selection changed.
+   */
   useEffect(() => {
+    const feed = createLiveFeed({
+      onTicker: (sym, t) => setTickers((prev) => ({ ...prev, [sym]: t })),
+      onKline: () => {},
+      onStatus: (s) => {
+        setLive(s === "live");
+        // Prices are arriving again, so whatever was stale no longer is.
+        if (s === "live") setStale(false);
+      },
+    });
+    feedRef.current = feed;
+    return () => {
+      feed.close();
+      feedRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    feedRef.current?.setTickerSymbols(symbolsKey.split(",").filter(Boolean));
+  }, [symbolsKey]);
+
+  /**
+   * REST polling is the fallback, not the default.
+   *
+   * While the socket is live this would be duplicate traffic that still costs
+   * Worker requests — and requests are the binding constraint on the free
+   * hosting tier (100,000/day). Polling only runs when streaming is down.
+   */
+  useEffect(() => {
+    if (live) return;
     const symbols = symbolsKey.split(",").filter(Boolean);
     let alive = true;
 
@@ -61,7 +101,7 @@ export default function Home() {
       alive = false;
       stopPolling();
     };
-  }, [symbolsKey]);
+  }, [live, symbolsKey]);
 
   const { equity, pnl, pnlPct } = useMemo(() => {
     let equity = cash;
