@@ -33,6 +33,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Next generates the global route helpers (LayoutProps, PageProps) into
+      # .next/, which is gitignored -- so a fresh clone has none of them and
+      # `tsc` fails with "Cannot find name 'LayoutProps'". This passed locally
+      # only because a previous build had left .next/ on disk: the typecheck was
+      # silently depending on a stale artifact. `next typegen` is the documented
+      # way to produce those definitions for CI type-checking without a build.
+      - name: Generate route types
+        run: npx next typegen
+
       - name: Typecheck
         run: npx tsc --noEmit
 
