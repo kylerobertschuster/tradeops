@@ -1,8 +1,9 @@
 import type { Candle, Interval, SymbolInfo, Ticker } from "./types";
 import type { WhaleTransfer } from "./onchain";
 import type { HolderStats } from "./holders";
+import type { VenuesResponse } from "./venues";
 
-export type { WhaleTransfer, HolderStats };
+export type { WhaleTransfer, HolderStats, VenuesResponse };
 
 /** Client-side fetchers for the local API routes. */
 
@@ -26,6 +27,26 @@ export async function searchSymbols(q: string): Promise<SymbolInfo[]> {
   const res = await fetch(`/api/symbols?q=${encodeURIComponent(q)}`);
   if (!res.ok) return [];
   return (await res.json()) as SymbolInfo[];
+}
+
+/**
+ * All venues' own candles and 24h stats for one symbol.
+ *
+ * `bars` is a ceiling, not a promise: the venues have different history caps,
+ * so the route clamps every venue to the same window and reports the count it
+ * actually used as `bars`. Treating fewer bars than requested as an error would
+ * fire on nearly every call.
+ */
+export async function fetchVenues(
+  symbol: string,
+  interval: Interval,
+  bars = 300,
+): Promise<VenuesResponse> {
+  const res = await fetch(
+    `/api/venues?symbol=${encodeURIComponent(symbol)}&interval=${interval}&bars=${bars}`,
+  );
+  if (!res.ok) throw new Error(`Venues request failed (${res.status})`);
+  return (await res.json()) as VenuesResponse;
 }
 
 export async function fetchWhales(minUsd = 1_000_000, blocks = 15): Promise<WhaleTransfer[]> {

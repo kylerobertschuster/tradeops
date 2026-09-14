@@ -9,6 +9,7 @@ import {
   HistogramSeries,
   LineSeries,
   LineStyle,
+  PriceScaleMode,
   type IChartApi,
   type ISeriesApi,
   type SeriesType,
@@ -20,7 +21,43 @@ import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { sma, ema, bollinger, rsi, macd, vwap } from "@/lib/indicators";
 import { findSymbol } from "@/lib/symbols";
 import { formatPrice, formatPct, formatCompact } from "@/lib/format";
+import { VENUES, VENUE_MAP, type VenueId } from "@/lib/venues";
+import { useVenues } from "@/lib/useVenues";
+import VenueStrip from "./VenueStrip";
 import type { Candle, Interval, Ticker } from "@/lib/types";
+
+/**
+ * Every series that belongs to the single-venue candle view, and is therefore
+ * hidden while the venue overlay is on. Listed once so that adding an indicator
+ * cannot accidentally forget to hide itself in compare mode and draw a line
+ * from one venue's candles over a chart of all of them.
+ */
+const CANDLE_VIEW_KEYS = [
+  "candles",
+  "volume",
+  "sma20",
+  "sma50",
+  "ema20",
+  "ema50",
+  "vwap",
+  "bb_up",
+  "bb_mid",
+  "bb_low",
+  "rsi",
+  "macd_line",
+  "macd_signal",
+  "macd_hist",
+] as const;
+
+function setCandleViewVisible(
+  series: Record<string, ISeriesApi<SeriesType>>,
+  visible: boolean,
+): void {
+  for (const key of CANDLE_VIEW_KEYS) series[key]?.applyOptions({ visible });
+}
+
+/** Series key for a venue's overlay line. */
+const venueKey = (id: VenueId) => `venue:${id}`;
 
 type IndKey = "volume" | "sma20" | "sma50" | "ema20" | "ema50" | "bb" | "vwap" | "rsi" | "macd";
 
@@ -71,6 +108,8 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<Record<string, ISeriesApi<SeriesType>>>({});
   const fitKeyRef = useRef<string>("");
+  /** Last symbol/interval the compare overlay was fitted for. */
+  const fitCompareRef = useRef<string>("");
 
   const [candles, setCandles] = useState<Candle[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +123,15 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   const fetchKey = `${symbol}:${interval}`;
   const loading = loadedKey !== fetchKey;
   const [menuOpen, setMenuOpen] = useState(false);
+  /**
+   * Single-venue candles, or every venue's closes rebased to percentage.
+   *
+   * Off by default: the candle view is the one people arrive for, and an
+   * overlay of six near-identical lines is a worse first impression than a
+   * candlestick chart. The venue table below is always visible either way, so
+   * the comparison is never more than one click away.
+   */
+  const [compare, setCompare] = useState(false);
   const [inds, setInds] = useState<Record<IndKey, boolean>>({
     volume: true,
     sma20: false,
@@ -97,6 +145,12 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   });
 
   const info = findSymbol(symbol);
+
+  const { data: venues, loading: venuesLoading, error: venuesError } = useVenues(symbol, interval);
+  /** Venues that actually returned candles for this symbol and interval. */
+  const venueLines = (venues?.series ?? []).filter((s) => s.candles.length > 0);
+  const venueSeries = venues?.series ?? [];
+  const venueTickers = venues?.tickers ?? [];
 
   // Fetch candles (poll for live updates)
   useEffect(() => {
@@ -256,6 +310,79 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
     }
   }, [candles, symbol, interval]);
 
+  /**
+   * The venue comparison overlay.
+   *
+   * Lines are drawn in **percentage** mode rather than at absolute prices, and
+   * that is not a stylistic choice. BTC on Binance and BTC on Kraken can differ
+   * by more than a 15-minute candle's entire range, so plotting raw closes
+   * scales the axis to the gap *between* venues and flattens the price action
+   * everyone came to see — and on a narrow window most of the lines fall off
+   * the chart entirely. `PriceScaleMode.Percentage` rebases each series to its
+   * own first visible value, so the lines coincide where the venues agree and
+   * separate where they do not. The absolute prices stay in the table below,
+   * where they are readable.
+   *
+   * The candle view is hidden rather than destroyed (`visible: false`), so
+   * leaving compare mode restores every series without rebuilding it.
+   */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const removeLine = (id: VenueId) => {
+      const s = seriesRef.current[venueKey(id)];
+      if (s) {
+        chart.removeSeries(s);
+        delete seriesRef.current[venueKey(id)];
+      }
+    };
+
+    setCandleViewVisible(seriesRef.current, !compare);
+
+    if (!compare) {
+      for (const v of VENUES) removeLine(v.id);
+      chart.priceScale("right").applyOptions({ mode: PriceScaleMode.Normal });
+      fitCompareRef.current = "";
+      return;
+    }
+
+    const ids = new Set(venueLines.map((s) => s.id));
+    for (const v of VENUES) if (!ids.has(v.id)) removeLine(v.id);
+    if (venueLines.length === 0) return;
+
+    for (const s of venueLines) {
+      let line = seriesRef.current[venueKey(s.id)] as ISeriesApi<"Line"> | undefined;
+      if (!line) {
+        line = chart.addSeries(LineSeries, {
+          color: VENUE_MAP[s.id].color,
+          lineWidth: 2,
+          priceLineVisible: false,
+          crosshairMarkerRadius: 3,
+        }) as ISeriesApi<"Line">;
+        seriesRef.current[venueKey(s.id)] = line;
+      }
+      line.setData(
+        s.candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })),
+      );
+    }
+
+    chart.priceScale("right").applyOptions({ mode: PriceScaleMode.Percentage });
+
+    // Fit once per symbol/interval. In percentage mode the baseline is the
+    // first *visible* value, so refitting on every poll would keep sliding the
+    // zero point while the user is reading it.
+    const key = `${symbol}:${interval}`;
+    if (fitCompareRef.current !== key) {
+      fitCompareRef.current = key;
+      chart.timeScale().fitContent();
+    }
+  }, [compare, venueLines, symbol, interval]);
+
+  /**
+   * Volume and the oscillators own their own price scales, so they are
+   * unaffected by the overlay's swap to percentage mode on the right scale.
+   */
   function applyLayout() {
     const chart = chartRef.current;
     if (!chart) return;
@@ -436,8 +563,13 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
     }
 
     applyLayout();
+    // A freshly created indicator series is visible by default, so compare mode
+    // has to re-assert itself after every indicator rebuild — the candle
+    // refresh runs every 30s and would otherwise pop a 20-bar SMA over the
+    // venue overlay. `compare` is a dependency for exactly this reason.
+    setCandleViewVisible(seriesRef.current, !compare);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candles, inds]);
+  }, [candles, inds, compare]);
 
   const last = candles[candles.length - 1];
 
@@ -550,19 +682,24 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
         </div>
       </div>
 
-      {/* OHLC stats */}
-      <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-0.5 border-b border-tv-border px-4 py-1.5 text-[11px] tabular-nums">
-        <Stat label="Open" value={last ? formatPrice(last.open) : "—"} />
-        <Stat label="High" value={highValue} title={rangeTitle} />
-        <Stat label="Low" value={lowValue} title={rangeTitle} />
-        <Stat label="Close" value={last ? formatPrice(last.close) : "—"} />
-        <Stat label="24h Vol" value={ticker?.quoteVolume ? formatCompact(ticker.quoteVolume) : "—"} />
-      </div>
+      {/* OHLC stats. Hidden in compare mode: these describe the selected
+          venue's latest candle, which is not on screen, and an unlabelled
+          Open/High/Low/Close above an overlay of six venues reads as though it
+          described all of them. The strip's per-venue columns replace it. */}
+      {!compare && (
+        <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-0.5 border-b border-tv-border px-4 py-1.5 text-[11px] tabular-nums">
+          <Stat label="Open" value={last ? formatPrice(last.open) : "—"} />
+          <Stat label="High" value={highValue} title={rangeTitle} />
+          <Stat label="Low" value={lowValue} title={rangeTitle} />
+          <Stat label="Close" value={last ? formatPrice(last.close) : "—"} />
+          <Stat label="24h Vol" value={ticker?.quoteVolume ? formatCompact(ticker.quoteVolume) : "—"} />
+        </div>
+      )}
 
       {/* Chart */}
       <div className="relative min-h-0 flex-1">
         <div ref={containerRef} className="absolute inset-0" />
-        {loading && candles.length === 0 && (
+        {!compare && loading && candles.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-tv-bg">
             <div className="flex items-center gap-2 text-[13px] text-tv-muted">
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-tv-border border-t-tv-accent" />
@@ -570,12 +707,48 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
             </div>
           </div>
         )}
-        {error && candles.length === 0 && (
+        {!compare && error && candles.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-tv-bg">
             <p className="max-w-xs text-center text-[13px] text-tv-down">{error}</p>
           </div>
         )}
+        {compare && venueLines.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center bg-tv-bg">
+            <p className="max-w-xs text-center text-[13px] text-tv-muted">
+              {venuesLoading
+                ? `Loading every venue's ${info.base} history…`
+                : `No venue returned ${INTERVAL_LABEL[interval]} candles for ${info.base}/USDT. The table below says why for each one.`}
+            </p>
+          </div>
+        )}
+        {compare && venueLines.length > 0 && (
+          <div className="pointer-events-none absolute left-3 top-2 z-10 flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded bg-tv-bg/80 px-2 py-1 text-[10px] backdrop-blur-sm">
+            <span className="font-medium uppercase tracking-wider text-tv-muted">
+              % change · {venues?.bars ?? 0} bars
+            </span>
+            {venueLines.map((s) => (
+              <span key={s.id} className="flex items-center gap-1 tabular-nums text-tv-text">
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ background: VENUE_MAP[s.id].color }}
+                />
+                {VENUE_MAP[s.id].label}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
+
+      <VenueStrip
+        series={venueSeries}
+        tickers={venueTickers}
+        symbol={symbol}
+        interval={interval}
+        compare={compare}
+        onCompare={setCompare}
+        loading={venuesLoading}
+        error={venuesError}
+      />
     </div>
   );
 }

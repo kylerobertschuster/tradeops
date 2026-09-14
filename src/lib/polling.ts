@@ -21,14 +21,17 @@
  *   2. A hidden tab makes no requests. Nobody can see a background tab, so
  *      every request it issues is wasted. Polling stops when the document
  *      hides and resumes with an immediate refresh when it is visible again.
- *   3. The fallback cadences are slower. 15s / 30s / 30s / 120s is still live
- *      enough for a dashboard and bounds the cost when streaming is down.
+ *   3. The fallback cadences are slower. 15s / 30s / 30s / 120s / 60s is still
+ *      live enough for a dashboard and bounds the cost when streaming is down.
+ *      With every endpoint polled over REST, one foreground tab is 13,680
+ *      requests/day, so the free tier covers about seven.
  *
  * What is left while streaming is the chart's candle history (klines, 30s) and
- * the on-chain panels, which `RightPanel` only mounts while that tab is open:
- * about 2,900 requests/day on the default view, ~5,800 with the on-chain tab
- * open. `polling.test.ts` fails if a future edit shortens these past the
- * budget, so the hosting maths cannot silently regress.
+ * the multi-venue fan-out (venues, 60s), which together cost about 4,300
+ * requests/day on the default view; the on-chain panels add roughly 3,600 more
+ * and `RightPanel` only mounts them while that tab is open. `polling.test.ts`
+ * fails if a future edit shortens these past the budget, so the hosting maths
+ * cannot silently regress.
  */
 
 export const POLL_MS = {
@@ -36,6 +39,18 @@ export const POLL_MS = {
   klines: 30_000,
   whales: 30_000,
   holders: 120_000,
+  /**
+   * Multi-venue comparison (`/api/venues`).
+   *
+   * Slower than the other cadences on purpose, for two reasons. It is the most
+   * expensive endpoint in the app — one incoming request fans out to 12
+   * upstream ones — and it is the least urgent: the strip labels each row
+   * `live` or `polled`, and the primary venue already ticks over the websocket
+   * at no Worker cost. A minute-old venue spread is still the right answer to
+   * "do these venues disagree?", which moves on the scale of funding rates and
+   * order-book depth, not seconds.
+   */
+  venues: 60_000,
 } as const;
 
 /** Cloudflare Workers Free plan allowance, per day, resetting at 00:00 UTC. */

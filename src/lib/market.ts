@@ -77,7 +77,7 @@ export function clearMarketCache(): void {
  * and will keep doing so for centuries. Without this, a Bybit response shifts
  * every candle by 1000x and silently wrecks the time axis.
  */
-function toSeconds(t: number): number {
+export function toSeconds(t: number): number {
   return t >= 1e11 ? Math.floor(t / 1000) : t;
 }
 

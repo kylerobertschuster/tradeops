@@ -37,9 +37,28 @@ describe("poll cadences", () => {
     expect(perTab).toBeLessThanOrEqual(WORKERS_FREE_REQUESTS_PER_DAY / 4);
   });
 
+  it("keeps the per-tab cost under a stated ceiling", () => {
+    // The real contract is cost per tab, not a tab count, so that is what is
+    // pinned. Before `/api/venues` this was 12,240 requests/day; at its 60s
+    // cadence the venue fan-out adds 1,440, giving 13,680. The ceiling is
+    // deliberately tight — there is room for about one more endpoint on a
+    // 10-minute cadence — so the next thing added has to argue for its cadence
+    // rather than quietly ride along on the existing slack.
+    expect(requestsPerDay()).toBeLessThanOrEqual(14_000);
+  });
+
   it("leaves room for several simultaneous open tabs", () => {
+    // This asserted `>= 8` until `/api/venues` was added, and that number was
+    // an illusion: the budget covers 8.17 tabs before the venue endpoint exists
+    // at all, so the assertion passed by 2% and *any* fifth polled endpoint was
+    // going to break it. Even a 3-minute venue cadence only reaches 7.86 tabs,
+    // so no cadence choice could have preserved it.
+    //
+    // Six is the honest floor: 100,000 / 13,680 = 7.31, leaving ~18,000
+    // requests/day of daylight for everything outside the poll loops — page
+    // loads, symbol search, the health check.
     const tabs = WORKERS_FREE_REQUESTS_PER_DAY / requestsPerDay();
-    expect(tabs).toBeGreaterThanOrEqual(8);
+    expect(tabs).toBeGreaterThanOrEqual(6);
   });
 
   it("converts a cadence into a daily request count", () => {
