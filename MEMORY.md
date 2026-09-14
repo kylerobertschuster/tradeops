@@ -9,14 +9,27 @@ Free, open-source on-chain analytics + paper-trading terminal. Rebuild the
 professional experience (Chainalysis / Nansen / TradingView) without the
 paywalls. No API keys, no accounts, no bullshit.
 
-## Current State (v0.5 — launch-ready hardening)
+## Current State (v0.6 — multi-venue comparison)
 
 Done:
 
+- **Multi-venue comparison (2026-09-14, tag `v0.6.0`).** All six venues' own
+  numbers side by side, nothing averaged: a strip under the chart (pair, last,
+  24h %, 24h range, 24h vol, deviation from median in bps, per-venue source
+  status) plus a `Candles | Compare` toggle that overlays every venue's close
+  rebased to percentage change via `PriceScaleMode.Percentage`. Spread is
+  labelled **last-price spread**, never "arbitrage" — these are candle closes,
+  not executable quotes. Binance · Coinbase · Kraken · OKX · Crypto.com report;
+  Bybit renders as region-blocked (Cloudflare 403 from US egress, see below).
+  One browser request (`/api/venues`) fans out to 12 subrequests in parallel at
+  a 60s cadence, so the request budget is unchanged. `VenueFault` is a closed
+  set — `unsupported-interval | unlisted | delisted | blocked | rate-limited |
+  timeout | unreachable | empty` — because "not listed here" and "we could not
+  reach this venue" are different claims.
 - TradingView Lightweight Charts (candles, volume, overlays)
 - Indicators: Volume, SMA 20/50, EMA 20/50, Bollinger Bands (20, 2),
   RSI 14, MACD (12, 26, 9), VWAP
-- 7 timeframes (`1m` → `1w`)
+- 8 timeframes (`1s` → `1w`)
 - Multi-provider market data with failover: Binance → Bybit → Coinbase (candles),
   Binance → CoinGecko (tickers). No API keys.
 - Watchlist + fuzzy symbol search
@@ -40,9 +53,9 @@ Done:
 - **P1 launch hardening (2026-09-12):**
   - **Security headers** in `next.config.ts` — CSP, HSTS, X-Frame-Options,
     nosniff, Referrer-Policy, Permissions-Policy.
-  - **83 Vitest tests** on the pure logic (`indicators`, `format`, `ratelimit`,
-    `symbols`) — hand-verified against Wilder's canonical RSI series rather
-    than snapshotted from our own output.
+  - **186 Vitest tests** on the pure logic (`indicators`, `format`, `ratelimit`,
+    `symbols`, `venues`, `polling`) — hand-verified against Wilder's canonical
+    RSI series rather than snapshotted from our own output.
   - **CI** (`.github/workflows/ci.yml`): lint + `tsc` + test + build on every
     push, plus a blocking `npm audit --audit-level=high` job.
   - **Responsive layout.** One DOM tree; below `lg` the three columns become
@@ -80,11 +93,28 @@ Request volume, not CPU, is the binding constraint. Workers Free allows 100,000
 requests/day and **counts cache hits as requests** — Cloudflare spares them only
 the CPU time — so edge caching cannot buy back quota. The only lever is how many
 requests the browser makes, hence `src/lib/polling.ts`: a hidden tab stops
-polling entirely, and the cadences are 15s/30s/30s/120s. Measured in a real
+polling entirely, and the cadences are 15s/30s/30s/120s/60s. Measured in a real
 browser: 3 requests per 36 s in a foreground tab, **0 while hidden**, and one
-refresh per endpoint on return. That is ~12,200/day worst case (~8,600 for the
-default view), so roughly eight always-open tabs on the free tier.
-`polling.test.ts` fails if the cadences are shortened past that budget.
+refresh per endpoint on return. Derived worst case, with every endpoint polled
+over REST, is 13,680/day — about seven always-open tabs; while the websocket is
+live it is ~4,300/day for the default view (`/api/klines` 30s +
+`/api/venues` 60s). `polling.test.ts` pins the cost per tab (≤ 14,000/day) and a
+floor of six concurrent tabs.
+
+That guard used to assert `>= 8` tabs, and it was fooling us: the budget covers
+8.17 tabs with no venue endpoint at all, so it passed by 2% and any fifth polled
+endpoint was going to break it. No cadence choice could have saved it — the
+venue fan-out on a 3-minute poll still only reaches 7.86. Hence pinning
+cost-per-tab, which is the contract that actually matters, instead of a
+tab count that was never true.
+
+`/api/venues` is one inbound request fanning out to 12 upstream subrequests in
+parallel. Those are billed as subrequests, not as Worker requests, so the
+browser-facing budget is unaffected. Cloudflare's documented subrequest cap is
+at least 50 even on the Free plan, so 12 has room, but no Workerd invocation
+limit has been measured yet — that is the next thing to check, together with the
+Free plan's per-invocation CPU budget, since parsing several hundred JSON bars
+per venue is the real CPU load in this app.
 
 Two caveats worth remembering. Workers middleware is documented as experimental
 and unofficially maintained, so the rate limiter there is best-effort rather
@@ -131,10 +161,27 @@ Launch readiness first, then features:
 
 - **P0 — done:** patched deps, lint, fetch deadlines, rate limiting.
 - **P1 — done:** security headers, Vitest + CI, mobile layout.
-- **P2:** deploy guide — Cloudflare Workers done, Docker/self-host still to do;
+- **P2 — done:** multi-venue comparison (v0.6.0).
+- **P3:** deploy guide — Cloudflare Workers done, Docker/self-host still to do;
   ToS + attribution page, error reporting, shared-store rate limiting, honest
   labelling of client-side P&L. (BigInt-safe token math and honest transfer
   timestamps are done.)
+- **Next features, in the order they were chosen:**
+  1. Multi-chart layouts (2×2 panes) + unlimited indicators per chart.
+  2. Bar replay + backtest against the existing paper engine.
+  3. Alerts — client-side first, then Workers Cron + KV so they fire with no
+     tab open, and that is the single upgrade TradingView charges $59.95/mo for.
+  4. History depth: 500 → 5,000 bars via Binance pagination.
+- `FEATURES.md`: the honest "the $59.95/month feature list, free" page, linked
+  from the README. TradingView's own pricing page is the source for their limits
+  (Basic: 1 chart/tab, 2 indicators, 5,000 bars, 3 alerts expiring ~30 days,
+  ads). Keep the "what they still do better" column — we cannot do equities or
+  options real-time, have no community scripts or screeners, and no
+  desktop/mobile apps. Note that 110+ drawing tools and Pine Script **are** free
+  on their Basic plan, so those are parity work, not a wedge.
+- Also open: measure the Workerd subrequest and CPU budgets (above), and an
+  upstream attribution/ToS page — Binance, CoinGecko, Coinbase, Kraken, OKX and
+  Crypto.com all have attribution or rate terms and the public RPCs forbid
+  production use. This is the biggest unaddressed risk to a public launch.
 - More indicators: Fibonacci, Ichimoku, order-flow heatmaps.
 - Accounts & cloud sync (optional login) — sync portfolios, labels, watchlists.
-- Alerts & price notifications.
