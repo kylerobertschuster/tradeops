@@ -2,6 +2,12 @@
   "name": "trade-ops",
   "version": "0.6.0",
   "private": true,
+  "license": "MIT",
+  "description": "Free, keyless on-chain analytics, multi-venue market data and paper trading in the browser.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kylerobertschuster/tradeops.git"
+  },
   "engines": {
     "node": ">=20.9.0"
   },

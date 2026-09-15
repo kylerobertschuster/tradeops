@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import SymbolSearch from "./SymbolSearch";
 import type { Interval } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
@@ -100,6 +101,18 @@ export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, pric
             {formatUsd(pnl)} ({formatPct(pnlPct)})
           </div>
         </div>
+        {/*
+         * The way into /legal from the terminal, which is otherwise a
+         * full-height viewport with nowhere to put a footer. Kept to a word and
+         * a muted tone: it needs to be findable, not to compete with the
+         * prices. Footers on the legal pages link back here.
+         */}
+        <Link
+          href="/legal"
+          className="shrink-0 text-[11px] text-tv-muted transition-colors hover:text-tv-text"
+        >
+          Legal
+        </Link>
       </div>
     </header>
   );

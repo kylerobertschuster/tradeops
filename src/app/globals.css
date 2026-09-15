@@ -56,3 +56,103 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/*
+ * Long-form documents under /legal.
+ *
+ * The terminal is styled with utilities throughout, but these pages are mostly
+ * continuous prose, and prose reads better — and is far easier to edit later,
+ * which matters for a document that has to stay true as the code changes — when
+ * the markup stays plain and the styling lives here.
+ */
+.legal-prose {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: color-mix(in srgb, #d1d4dc 88%, transparent);
+}
+.legal-prose > * + * {
+  margin-top: 0.7rem;
+}
+.legal-prose h2 {
+  margin-top: 2.25rem;
+  font-size: 15px;
+  font-weight: 600;
+  color: #d1d4dc;
+}
+.legal-prose h3 {
+  margin-top: 1.4rem;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #d1d4dc;
+}
+.legal-prose ul,
+.legal-prose ol {
+  padding-left: 1.4rem;
+}
+.legal-prose ul {
+  list-style: disc;
+}
+.legal-prose ol {
+  list-style: decimal;
+}
+.legal-prose li + li {
+  margin-top: 0.35rem;
+}
+.legal-prose strong {
+  font-weight: 600;
+  color: #d1d4dc;
+}
+.legal-prose a {
+  color: #6f97ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.legal-prose a:hover {
+  color: #a8beff;
+}
+.legal-prose code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  background: #2a2e39;
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: #e3e5ea;
+}
+.legal-prose table {
+  width: 100%;
+  margin-top: 0.9rem;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.legal-prose th,
+.legal-prose td {
+  border-bottom: 1px solid #2a2e39;
+  padding: 7px 10px 7px 0;
+  text-align: left;
+  vertical-align: top;
+}
+.legal-prose th {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #787b86;
+  white-space: nowrap;
+}
+.legal-prose td:first-child {
+  white-space: nowrap;
+  color: #d1d4dc;
+  font-weight: 600;
+}
+
+/* The summary box that opens each document, and one-off notices. */
+.legal-callout {
+  border: 1px solid #2a2e39;
+  border-left: 3px solid #2962ff;
+  border-radius: 4px;
+  background: #1e222d;
+  padding: 12px 14px;
+}
+.legal-callout.is-warning {
+  border-left-color: #f23645;
+}

@@ -1,3 +1,8 @@
 # Local-only variables for `npm run preview` (wrangler dev).
 # Copy this file to `.dev.vars` — that one is gitignored.
 NEXTJS_ENV=development
+
+# Optional: Ethereum JSON-RPC endpoints for the on-chain panels. See
+# .env.example for the full explanation. Useful here for checking how the
+# on-chain panes behave when they have no node to talk to:
+# ETH_RPC_URLS=off

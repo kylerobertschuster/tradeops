@@ -1,6 +1,6 @@
 import type { Candle, Interval } from "./types";
 import { fetchWithTimeout, UpstreamTimeoutError } from "./http";
-import { toSeconds } from "./market";
+import { toSeconds } from "./time";
 
 /**
  * Multi-venue market data.
@@ -584,20 +584,9 @@ function tickerUrl(id: VenueId, sourceSymbol: string): string {
   }
 }
 
-/**
- * One venue's 24h stats for one symbol.
- *
- * Deliberately one subrequest per venue rather than a bulk sweep: the strip
- * only ever shows the selected symbol, and a bulk OKX/Crypto.com response is
- * thousands of rows to parse for a single row of output.
- */
-export async function fetchVenueTicker(
-  id: VenueId,
-  symbol: string,
-  timeoutMs: number,
-): Promise<VenueTicker> {
-  const sourceSymbol = venueSymbol(id, symbol) ?? "";
-  const blank: VenueTicker = {
+/** Every field absent — the base every early return in this section spreads over. */
+function blankTicker(id: VenueId, sourceSymbol: string): VenueTicker {
+  return {
     id,
     sourceSymbol,
     price: null,
@@ -607,12 +596,28 @@ export async function fetchVenueTicker(
     quoteVolume: null,
     fault: null,
   };
-  if (!sourceSymbol) return { ...blank, fault: "unlisted" };
+}
 
-  const res = await venueJson(tickerUrl(id, sourceSymbol), timeoutMs);
-  if (res.fault) return { ...blank, fault: res.fault };
-
-  const b = res.body as Record<string, unknown>;
+/**
+ * One venue's 24h stats, parsed from a response body already in hand.
+ *
+ * Split out of `fetchVenueTicker` because the market-data failover chain needs
+ * these same rows: Crypto.com's *bulk* `get-tickers` returns all ~960
+ * instruments in a single subrequest, and those rows carry the same
+ * fraction-not-percent `c` change and `vv` quote volume as the
+ * single-instrument path. Decoding them in two places is how the copies drift.
+ *
+ * Pure and synchronous, so it can be tested against captured response bodies
+ * without a network stub — and so `market.ts` can reuse it without importing
+ * the fetch/retry machinery around it.
+ */
+export function venueTickerFromBody(
+  id: VenueId,
+  body: unknown,
+  sourceSymbol: string,
+): VenueTicker {
+  const blank = blankTicker(id, sourceSymbol);
+  const b = (body ?? {}) as Record<string, unknown>;
 
   switch (id) {
     case "binance": {
@@ -708,6 +713,27 @@ export async function fetchVenueTicker(
       };
     }
   }
+}
+
+/**
+ * One venue's 24h stats for one symbol.
+ *
+ * Deliberately one subrequest per venue rather than a bulk sweep: the strip
+ * only ever shows the selected symbol, and a bulk OKX/Crypto.com response is
+ * thousands of rows to parse for a single row of output.
+ */
+export async function fetchVenueTicker(
+  id: VenueId,
+  symbol: string,
+  timeoutMs: number,
+): Promise<VenueTicker> {
+  const sourceSymbol = venueSymbol(id, symbol) ?? "";
+  if (!sourceSymbol) return { ...blankTicker(id, ""), fault: "unlisted" };
+
+  const res = await venueJson(tickerUrl(id, sourceSymbol), timeoutMs);
+  if (res.fault) return { ...blankTicker(id, sourceSymbol), fault: res.fault };
+
+  return venueTickerFromBody(id, res.body, sourceSymbol);
 }
 
 // ---------------------------------------------------------------------------

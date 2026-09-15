@@ -1,16 +1,41 @@
 import type { Candle, Interval, SymbolInfo, Ticker } from "./types";
+// Type-only imports, erased at build time: the client bundle never pulls in the
+// server modules these types are declared in.
 import type { WhaleTransfer } from "./onchain";
 import type { HolderStats } from "./holders";
+import type { MarketSource } from "./market";
 import type { VenuesResponse } from "./venues";
 
 export type { WhaleTransfer, HolderStats, VenuesResponse };
 
 /** Client-side fetchers for the local API routes. */
 
-export async function fetchKlines(symbol: string, interval: Interval, limit = 500): Promise<Candle[]> {
+/** The upstreams that can serve candles, and the only accepted header values. */
+const MARKET_SOURCES: readonly MarketSource[] = ["binance", "bybit", "coinbase"];
+
+/**
+ * A candle series and the exchange that served it.
+ *
+ * `source` is `null` only when the header is missing or unrecognised — an older
+ * cached response, or something other than this app answering. The chart says
+ * so rather than picking a name, because a wrong attribution is worse than
+ * none.
+ */
+export type CandlesResponse = {
+  candles: Candle[];
+  source: MarketSource | null;
+};
+
+export async function fetchKlines(
+  symbol: string,
+  interval: Interval,
+  limit = 500,
+): Promise<CandlesResponse> {
   const res = await fetch(`/api/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`);
   if (!res.ok) throw new Error(`Klines request failed (${res.status})`);
-  return (await res.json()) as Candle[];
+  const header = res.headers.get("x-data-source");
+  const source = MARKET_SOURCES.find((s) => s === header) ?? null;
+  return { candles: (await res.json()) as Candle[], source };
 }
 
 export async function fetchTickers(symbols: string[]): Promise<Record<string, Ticker>> {

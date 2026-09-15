@@ -1,10 +1,22 @@
 import type { Candle, Interval, Ticker } from "./types";
-import { ALL_SYMBOLS } from "./symbols";
 import { fetchWithTimeout, budgetMs, UPSTREAM_TIMEOUT_MS } from "./http";
+import { toSeconds } from "./time";
+import { venueSymbol, venueTickerFromBody } from "./venues";
 
 /**
  * Server-side market data layer.
- * Providers (no API keys required): Binance -> Bybit -> Coinbase/CoinGecko.
+ *
+ * Candles fail over Binance -> Bybit -> Coinbase; tickers fail over
+ * Binance -> OKX -> Crypto.com -> Coinbase. Every one is a public, keyless
+ * endpoint.
+ *
+ * CoinGecko used to be the last ticker fallback and was removed deliberately:
+ * its API terms require a visible "Powered by CoinGecko" credit line at no
+ * smaller than font size 10, a six-clause user agreement, a warranty about
+ * sanctioned countries, and an indemnity of CoinGecko — in exchange for being
+ * the *fourth* provider asked, and the one that returned the 24h high/low it
+ * was explicitly asked for as null. Crypto.com covers the same fallback slot in
+ * the same single subrequest and actually supplies the range. See /legal/sources.
  */
 
 /**
@@ -67,18 +79,6 @@ const cache = new Map<string, { t: number; data: unknown }>();
  */
 export function clearMarketCache(): void {
   cache.clear();
-}
-
-/**
- * Normalize a provider timestamp to unix seconds, which is what `Candle.time`
- * promises. Providers disagree: Binance and Coinbase report seconds, Bybit
- * reports milliseconds. The two scales are ~1000x apart (seconds reach ~1.8e9
- * today, milliseconds ~1.8e12), so a threshold at 1e11 separates them cleanly
- * and will keep doing so for centuries. Without this, a Bybit response shifts
- * every candle by 1000x and silently wrecks the time axis.
- */
-export function toSeconds(t: number): number {
-  return t >= 1e11 ? Math.floor(t / 1000) : t;
 }
 
 /** Overall budget for a full provider-failover chain (see `budgetMs`). */
@@ -192,17 +192,65 @@ async function coinbaseKlines(symbol: string, interval: Interval, limit: number,
   }
 }
 
-export async function fetchKlines(symbol: string, interval: Interval, limit = 500): Promise<Candle[]> {
-  const providers = [binanceKlines, bybitKlines, coinbaseKlines];
+/**
+ * Which upstream actually served a series.
+ *
+ * Reported rather than assumed, because the provider chain fails over: the same
+ * symbol can be served by a different exchange a minute later, and the venues
+ * do not agree on price. A chart that will not say which exchange it is drawing
+ * hides the one thing this app exists to show, so the answer travels with the
+ * response instead of being inferred from the symbol.
+ */
+export type MarketSource = "binance" | "bybit" | "coinbase";
+
+/** A series together with the upstream it came from. */
+export type SourcedCandles = {
+  source: MarketSource;
+  candles: Candle[];
+};
+
+/**
+ * Candles from the first provider that will answer, with the provider's name.
+ *
+ * Binance is first because it is the deepest and most reliable of the three;
+ * Bybit covers regions where Binance refuses with HTTP 451; Coinbase is the last
+ * resort and quotes USD rather than USDT, which is why its prices run a few
+ * basis points off the other two.
+ */
+export async function fetchKlinesWithSource(
+  symbol: string,
+  interval: Interval,
+  limit = 500,
+): Promise<SourcedCandles> {
+  const providers: ReadonlyArray<[MarketSource, typeof binanceKlines]> = [
+    ["binance", binanceKlines],
+    ["bybit", bybitKlines],
+    ["coinbase", coinbaseKlines],
+  ];
   const deadline = Date.now() + CHAIN_BUDGET_MS;
-  for (const provider of providers) {
+  for (const [source, provider] of providers) {
     // Stop before starting an attempt we cannot finish within the budget.
     const timeoutMs = budgetMs(deadline);
     if (timeoutMs <= 0) break;
     const result = await provider(symbol, interval, limit, timeoutMs);
-    if (result && result.length > 0) return result;
+    if (result && result.length > 0) return { source, candles: result };
   }
   throw new Error(`No market data available for ${symbol}`);
+}
+
+/**
+ * The candles alone.
+ *
+ * For callers that only need the prices — the on-chain panels price historical
+ * transfers and have no use for provenance — and for staying source-compatible
+ * with the many places that already call this.
+ */
+export async function fetchKlines(
+  symbol: string,
+  interval: Interval,
+  limit = 500,
+): Promise<Candle[]> {
+  return (await fetchKlinesWithSource(symbol, interval, limit)).candles;
 }
 
 async function binanceTickers(symbols: string[], timeoutMs: number): Promise<Record<string, Ticker> | null> {
@@ -237,36 +285,41 @@ async function binanceTickers(symbols: string[], timeoutMs: number): Promise<Rec
   }
 }
 
-async function coingeckoTickers(symbols: string[], timeoutMs: number): Promise<Record<string, Ticker> | null> {
+/**
+ * Crypto.com spot tickers: every listed instrument in one response.
+ *
+ * Replaces CoinGecko in the fallback chain at no extra cost — one subrequest,
+ * the same as the OKX sweep — and parses rows through `venues.ts` so the
+ * fraction-not-percent `c` change and the `vv` quote volume are decoded in
+ * exactly one place.
+ *
+ * Live check of all 960 rows: `a`, `c`, `h`, `l` and `vv` were present on every
+ * single one, so the guard below is about not inventing a price or a change
+ * when a field is unexpectedly absent rather than about an optional field. A
+ * skipped symbol is simply left for the next provider. Note that BNB_USDT is
+ * genuinely not in Crypto.com's spot list, so BNB leans on Binance and OKX.
+ */
+async function cryptocomTickers(symbols: string[], timeoutMs: number): Promise<Record<string, Ticker> | null> {
   try {
-    const infos = symbols
-      .map((s) => ALL_SYMBOLS.find((x) => x.symbol === s))
-      .filter((x) => x?.cgId) as Array<{ symbol: string; base: string; cgId: string }>;
-    if (infos.length === 0) return null;
-    const ids = infos.map((i) => i.cgId).join(",");
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_high_low=true&include_24hr_vol=true`;
-    const data = (await cachedJson(url, 5000, timeoutMs)) as Record<string, {
-      usd?: number;
-      usd_24h_change?: number;
-      usd_24h_high?: number;
-      usd_24h_low?: number;
-      usd_24h_vol?: number;
-    }>;
+    const body = await cachedJson(
+      "https://api.crypto.com/exchange/v1/public/get-tickers",
+      5000,
+      timeoutMs,
+    );
     const out: Record<string, Ticker> = {};
-    for (const info of infos) {
-      const d = data?.[info.cgId];
-      if (!d?.usd) continue;
-      out[info.symbol] = {
-        symbol: info.symbol,
-        base: info.base,
-        price: d.usd,
-        change24h: d.usd_24h_change ?? 0,
-        // CoinGecko's free tier accepts `include_24hr_high_low` and then returns
-        // neither field, so these are genuinely null in the common case rather
-        // than an edge case. Do not fall back to `d.usd`.
-        high24h: num(d.usd_24h_high),
-        low24h: num(d.usd_24h_low),
-        quoteVolume: d.usd_24h_vol ?? 0,
+    for (const symbol of symbols) {
+      const sourceSymbol = venueSymbol("cryptocom", symbol);
+      if (!sourceSymbol) continue;
+      const t = venueTickerFromBody("cryptocom", body, sourceSymbol);
+      if (t.price == null || t.change24h == null) continue;
+      out[symbol] = {
+        symbol,
+        base: symbol.replace(/USDT$/, ""),
+        price: t.price,
+        change24h: t.change24h,
+        high24h: t.high24h,
+        low24h: t.low24h,
+        quoteVolume: t.quoteVolume ?? 0,
       };
     }
     return Object.keys(out).length ? out : null;
@@ -395,7 +448,10 @@ export class UpstreamExhaustedError extends Error {
 export async function fetchTickers(symbols: string[]): Promise<Record<string, Ticker>> {
   if (symbols.length === 0) return {};
   const deadline = Date.now() + CHAIN_BUDGET_MS;
-  const providers = [binanceTickers, okxTickers, coinbaseTickers, coingeckoTickers];
+  // Bulk providers first, because each costs exactly one subrequest no matter
+  // how long the watchlist is; Coinbase is last because it costs one
+  // subrequest *per symbol*.
+  const providers = [binanceTickers, okxTickers, cryptocomTickers, coinbaseTickers];
   for (const provider of providers) {
     const remaining = budgetMs(deadline);
     if (remaining <= 0) break;

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { getBlockTimestamps, priceAtTime } from "./onchain";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getBlockTimestamps, priceAtTime, rpcUrls } from "./onchain";
 import type { Candle } from "./types";
 
 type RpcRequest = { id: number; method: string; params: unknown[] };
@@ -22,6 +22,13 @@ function mockRpc(answer: (body: RpcRequest[], url: string) => unknown) {
 function echo(body: RpcRequest[]) {
   return body.map((r) => ({ id: r.id, result: { timestamp: "0x" + (1_800_000_000 + r.id).toString(16) } }));
 }
+
+// `rpcUrls()` reads the environment on every call, so a developer who has
+// `ETH_RPC_URLS` exported would otherwise exercise their own node here and get
+// different endpoints than CI does.
+beforeEach(() => {
+  delete process.env.ETH_RPC_URLS;
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -69,7 +76,7 @@ describe("getBlockTimestamps", () => {
       seen++;
       if (seen === 1) return new Response("nope", { status: 429 });
       const body = JSON.parse(String(init.body)) as RpcRequest[];
-      expect(String(url)).toContain("drpc"); // second entry in RPC_URLS
+      expect(String(url)).toContain("drpc"); // second entry in the default list
       return new Response(JSON.stringify(echo(body)), { status: 200 });
     });
     const times = await getBlockTimestamps([5]);
@@ -137,5 +144,45 @@ describe("priceAtTime", () => {
       const expected = many.filter((c) => c.time <= t).pop()?.close ?? null;
       expect(priceAtTime(many, t)).toBe(expected);
     }
+  });
+});
+
+describe("rpcUrls", () => {
+  it("defaults to the public endpoints, in a fixed order", () => {
+    // Order is the failover order, so it is part of the contract.
+    expect(rpcUrls()).toEqual([
+      "https://ethereum-rpc.publicnode.com",
+      "https://eth.drpc.org",
+      "https://1rpc.io/eth",
+      "https://rpc.flashbots.net",
+    ]);
+  });
+
+  it("takes an override list, trimmed and de-duplicated, in the order given", () => {
+    process.env.ETH_RPC_URLS =
+      " https://a.example.com , https://b.example.com ,https://a.example.com";
+    expect(rpcUrls()).toEqual(["https://a.example.com", "https://b.example.com"]);
+  });
+
+  it("drops entries that are not absolute http(s) URLs", () => {
+    // A bare host reaches `fetch` as a relative path and fails in a way that
+    // reads as the node being down, which is the wrong bug to go hunting for.
+    process.env.ETH_RPC_URLS =
+      "my-node.example.com,ws://node.example.com,https://good.example.com";
+    expect(rpcUrls()).toEqual(["https://good.example.com"]);
+  });
+
+  it("falls back to the defaults rather than to nothing when the value is unusable", () => {
+    // A typo must not silently switch the on-chain panels off.
+    process.env.ETH_RPC_URLS = "   ";
+    expect(rpcUrls()).toHaveLength(4);
+    process.env.ETH_RPC_URLS = "not-a-url";
+    expect(rpcUrls()).toHaveLength(4);
+  });
+
+  it("returns an empty list only when explicitly turned off", () => {
+    // The one way to stop leaning on someone else's node entirely.
+    process.env.ETH_RPC_URLS = "off";
+    expect(rpcUrls()).toEqual([]);
   });
 });

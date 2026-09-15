@@ -16,6 +16,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/api";
+import type { MarketSource } from "@/lib/market";
 import { createLiveFeed, type LiveFeed, type LiveStatus } from "@/lib/live";
 import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { sma, ema, bollinger, rsi, macd, vwap } from "@/lib/indicators";
@@ -145,6 +146,8 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   });
 
   const info = findSymbol(symbol);
+  /** Which exchange served the candles currently on screen. */
+  const [source, setSource] = useState<MarketSource | null>(null);
 
   const { data: venues, loading: venuesLoading, error: venuesError } = useVenues(symbol, interval);
   /** Venues that actually returned candles for this symbol and interval. */
@@ -157,9 +160,10 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
     let alive = true;
     async function load() {
       try {
-        const data = await fetchKlines(symbol, interval);
+        const { candles: data, source } = await fetchKlines(symbol, interval);
         if (!alive) return;
         setCandles(data);
+        setSource(source);
         setError(null);
       } catch {
         if (alive) setError("Unable to load market data. Please try again shortly.");
@@ -576,7 +580,7 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   /**
    * High/Low prefer the 24h range but fall back to the latest candle — the
    * same basis Open and Close already use. The 24h range is sometimes absent
-   * (CoinGecko's free tier omits it), so say which quantity is on screen rather
+   * (not every venue publishes one), so say which quantity is on screen rather
    * than letting one label mean two different things silently.
    */
   const has24hRange = ticker?.high24h != null && ticker?.low24h != null;
@@ -625,6 +629,35 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
               {live === "live" ? "LIVE" : live === "connecting" ? "\u2026" : "POLL"}
             </span>
           </span>
+          {/*
+           * Which exchange drew this chart.
+           *
+           * Read from the response, never assumed: the provider chain fails
+           * over, so the same symbol can come from Binance now and Coinbase a
+           * minute later, and the venues disagree on price. Which one you are
+           * looking at is information, not trivia.
+           *
+           * Showing the name does create an obligation to be precise about the
+           * live bar, which streams from Binance specifically — so when those
+           * two differ, the tooltip says so instead of letting one label speak
+           * for both.
+           */}
+          {source && (
+            <span
+              className="flex shrink-0 items-center gap-1.5 self-center rounded bg-tv-panel2 px-1.5 py-0.5 text-[10px] font-medium text-tv-muted"
+              title={
+                live === "live" && source !== "binance"
+                  ? `Candlestick history served by ${VENUE_MAP[source].label}. Live updates to the newest bar are streamed from Binance, whose feed this is.`
+                  : `Candles served by ${VENUE_MAP[source].label}. The serving venue can change between refreshes, because the app fails over when one refuses.`
+              }
+            >
+              <span
+                className="h-1.5 w-3.5 rounded-sm"
+                style={{ background: VENUE_MAP[source].color }}
+              />
+              {VENUE_MAP[source].label}
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <div className="text-right">

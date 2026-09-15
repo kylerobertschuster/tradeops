@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   VENUES,
@@ -274,6 +275,24 @@ export default function VenueStrip({
             })}
           </tbody>
         </table>
+      </div>
+      {/*
+       * Attribution belongs against the data, not only on a legal page nobody
+       * opens. Two things a reader of this table needs to be told in the same
+       * breath as the numbers: that each row is one venue's own quote rather
+       * than a blend of them, and that a last traded price is not an offer.
+       */}
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-t border-tv-border/60 px-3 py-1 text-[10px] leading-tight text-tv-muted">
+        <span>
+          Each row is that venue&rsquo;s own quote, not an average. Prices are last trades, not
+          executable offers.
+        </span>
+        <Link
+          href="/legal/sources"
+          className="underline underline-offset-2 transition-colors hover:text-tv-text"
+        >
+          Sources &amp; terms
+        </Link>
       </div>
     </div>
   );

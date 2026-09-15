@@ -8,12 +8,55 @@ import type { Candle } from "./types";
  * No API key required — falls back across providers.
  */
 
-const RPC_URLS = [
+/**
+ * Public Ethereum JSON-RPC endpoints, used only by the on-chain panels.
+ *
+ * These are free, community- and company-run nodes. They are fine for a local
+ * run or a light public instance — this app makes a handful of calls a minute,
+ * never indexes, and keeps no archive — but they are not a data source to build
+ * traffic on, and each operator sets their own terms (see /legal/sources).
+ *
+ * Point `ETH_RPC_URLS` at your own node before running real traffic: Alchemy,
+ * Infura, QuickNode, or `geth`/`reth` on your own hardware. Override with a
+ * comma-separated list, tried in order:
+ *
+ *   ETH_RPC_URLS=https://my-node.example.com,https://backup.example.com
+ */
+const DEFAULT_RPC_URLS = [
   "https://ethereum-rpc.publicnode.com",
   "https://eth.drpc.org",
   "https://1rpc.io/eth",
   "https://rpc.flashbots.net",
 ];
+
+/**
+ * The RPC endpoints to try, most-preferred first.
+ *
+ * Read on every call rather than captured in a module constant: the value comes
+ * from the Worker environment, and a constant would freeze whichever value
+ * happened to be present when the isolate was first evaluated.
+ *
+ * An empty or unusable value falls back to the defaults so a typo cannot leave
+ * the chain with nothing to try — but an explicit `off` returns an empty list,
+ * which is the one way to stop the app leaning on somebody else's node. The
+ * on-chain panels then report themselves unavailable, which is the truth.
+ */
+export function rpcUrls(): string[] {
+  const raw = process.env.ETH_RPC_URLS?.trim();
+  if (!raw) return DEFAULT_RPC_URLS;
+  if (/^(off|none|false|0)$/i.test(raw)) return [];
+  const urls = Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((u) => u.trim())
+        // Only absolute HTTP(S): a bare host would be passed to `fetch` as a
+        // relative path and fail in a way that looks like the node being down.
+        .filter((u) => /^https?:\/\//i.test(u)),
+    ),
+  );
+  return urls.length > 0 ? urls : DEFAULT_RPC_URLS;
+}
 
 const TRANSFER_SIG = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
@@ -73,7 +116,7 @@ const RPC_CHAIN_BUDGET_MS = 12_000;
 async function rpc(method: string, params: unknown[]): Promise<unknown> {
   const deadline = Date.now() + RPC_CHAIN_BUDGET_MS;
   let lastErr: unknown;
-  for (const url of RPC_URLS) {
+  for (const url of rpcUrls()) {
     // Stop before starting an attempt we cannot finish within the budget.
     const timeoutMs = budgetMs(deadline, RPC_ATTEMPT_TIMEOUT_MS);
     if (timeoutMs <= 0) break;
@@ -158,7 +201,7 @@ async function timestampBatch(blocks: number[], deadline: number): Promise<Map<n
     params: ["0x" + b.toString(16), false],
   }));
 
-  for (const url of RPC_URLS) {
+  for (const url of rpcUrls()) {
     const timeoutMs = budgetMs(deadline, RPC_ATTEMPT_TIMEOUT_MS);
     if (timeoutMs <= 0) break;
     try {
