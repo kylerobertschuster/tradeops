@@ -9,7 +9,7 @@ Free, open-source on-chain analytics + paper-trading terminal. Rebuild the
 professional experience (Chainalysis / Nansen / TradingView) without the
 paywalls. No API keys, no accounts, no bullshit.
 
-## Current State (v0.6 — multi-venue comparison)
+## Current State (v0.6.x — launch-ready)
 
 Done:
 
@@ -26,12 +26,36 @@ Done:
   set — `unsupported-interval | unlisted | delisted | blocked | rate-limited |
   timeout | unreachable | empty` — because "not listed here" and "we could not
   reach this venue" are different claims.
+- **Hosted-deploy truth fixes (2026-09-18, `7568187`).** Binance.US joins as a
+  venue row *and* a candle provider, because Cloudflare's egress gets 403/451 from
+  Binance and 403 from Bybit; hard refusals are remembered per host for ten
+  minutes so dead round trips are not repaid on every cache miss. BlockScout
+  holders are now fetched by *the browser* (its limit is per IP; a Worker's egress
+  is shared and permanently 429), with `/api/holders` as fallback answering 503 +
+  `Retry-After`. Chart price-axis digits now follow the visible range (PEPE read
+  `0.00`, DOGE could not be labelled finer than a cent). Link previews are real
+  (`og.png` + `metadataBase`). Two silent bugs fixed: **UNI's contract address was
+  one character off** — not a contract at all, 404 from BlockScout and zero
+  `eth_getLogs` results — and the token list moved to `src/lib/tokens.ts` so the
+  browser can use it without pulling in the market layer.
+- **Legal pages, attribution, donations (2026-09-14/18, `6d48d70` + `33450ad`).**
+  `/legal` with terms (15 sections), privacy (held to the code by tests) and a
+  sources page rendered from `SOURCES`; a test fails the build if any hostname in
+  `src/` is unaccounted for. Donations (Buy Me a Coffee + GitHub Sponsors) sit
+  behind `SUPPORT_LINKS` in `src/lib/legal.ts` — **empty renders nothing anywhere**,
+  and terms section 8 says "this deployment accepts no donations" in that state.
+  Still unset: `GOVERNING_LAW` (the operator's one-liner, and the terms page says
+  so) and the two donation accounts, neither of which exists yet.
 - TradingView Lightweight Charts (candles, volume, overlays)
 - Indicators: Volume, SMA 20/50, EMA 20/50, Bollinger Bands (20, 2),
   RSI 14, MACD (12, 26, 9), VWAP
 - 8 timeframes (`1s` → `1w`)
-- Multi-provider market data with failover: Binance → Bybit → Coinbase (candles),
-  Binance → CoinGecko (tickers). No API keys.
+- Multi-provider market data with failover: Binance → Binance.US → Bybit →
+  Coinbase (candles), Binance → OKX → Crypto.com → Coinbase (24h stats). No API
+  keys. **CoinGecko was removed** in the compliance sweep: strictest terms of any
+  dependency (mandatory attribution, no redistribution, an indemnity clause) for
+  the fourth-choice ticker fallback. Crypto.com's bulk endpoint replaced it in one
+  subrequest and brings real 24h high/low, which CoinGecko's free tier omitted.
 - Watchlist + fuzzy symbol search
 - Paper trading: virtual $100k, market orders, 0.1% taker fee, live P&L,
   positions, order history — persisted in-browser (Zustand)
@@ -163,9 +187,10 @@ Launch readiness first, then features:
 - **P1 — done:** security headers, Vitest + CI, mobile layout.
 - **P2 — done:** multi-venue comparison (v0.6.0).
 - **P3:** deploy guide — Cloudflare Workers done, Docker/self-host still to do;
-  ToS + attribution page, error reporting, shared-store rate limiting, honest
-  labelling of client-side P&L. (BigInt-safe token math and honest transfer
-  timestamps are done.)
+  error reporting, shared-store rate limiting, honest labelling of client-side
+  P&L. **Legal + attribution pages are done** (2026-09-18), and CoinGecko — the
+  strictest and least useful dependency — is gone. (BigInt-safe token math and
+  honest transfer timestamps are done.)
 - **Next features, in the order they were chosen:**
   1. Multi-chart layouts (2×2 panes) + unlimited indicators per chart.
   2. Bar replay + backtest against the existing paper engine.
@@ -179,9 +204,11 @@ Launch readiness first, then features:
   options real-time, have no community scripts or screeners, and no
   desktop/mobile apps. Note that 110+ drawing tools and Pine Script **are** free
   on their Basic plan, so those are parity work, not a wedge.
-- Also open: measure the Workerd subrequest and CPU budgets (above), and an
-  upstream attribution/ToS page — Binance, CoinGecko, Coinbase, Kraken, OKX and
-  Crypto.com all have attribution or rate terms and the public RPCs forbid
-  production use. This is the biggest unaddressed risk to a public launch.
+- Also open: measure the Workerd subrequest and CPU budgets (above). The
+  attribution/ToS page is done (`/legal/sources`), but **the upstream terms are
+  still unread** for Binance (202 bot challenge), Coinbase (403) and Kraken
+  (JS-rendered) — those clauses are unverified and must not be quoted as fact.
+  Redistributing exchange market data is the biggest unaddressed launch risk; the
+  realistic outcome of a complaint is an email or an IP block, not a court.
 - More indicators: Fibonacci, Ichimoku, order-flow heatmaps.
 - Accounts & cloud sync (optional login) — sync portfolios, labels, watchlists.
