@@ -88,6 +88,24 @@ export function requestsPerDay(intervals: Record<string, number> = POLL_MS): num
 }
 
 /**
+ * How often one chart asks for candle history.
+ *
+ * The focused chart pays `POLL_MS.klines`; every other chart pays
+ * `EXTRA_PANE_MS`. It is a function rather than a ternary inside the component
+ * for a reason that cost a bug to learn: this rule *is* the hosting budget, and
+ * `eslint-plugin-react-hooks` v7 dropped `exhaustive-deps`, so an effect that
+ * forgets to depend on `focused` is no longer something a linter catches. A
+ * rule that lives in a component can only be checked by a test that renders the
+ * component, and there is no such test here — the chart needs a canvas. So the
+ * rule lives where a unit test can reach it, and `ChartPanel` depends on the
+ * *value* this returns rather than on the inputs to it, which means a future
+ * input to the cadence cannot leave that dependency list stale.
+ */
+export function candlePollMs(focused: boolean): number {
+  return focused ? POLL_MS.klines : EXTRA_PANE_MS;
+}
+
+/**
  * Requests one foreground tab spends per day showing `panes` charts.
  *
  * The focused chart pays the cadences in `POLL_MS` and every other chart pays
@@ -108,10 +126,14 @@ export function requestsPerDayPanes(panes: number, streaming = true): number {
   // The two per-minute figures are counts of requests a minute; `requestsPerDay`
   // is a count of requests a day. Bring it into the same unit rather than
   // multiplying a daily figure by a day's worth of minutes.
+  //
+  // The cadences come from `candlePollMs` so this budget is computed from the
+  // same rule the chart polls by. Change the rule and this number moves with it;
+  // the pinned tests in `polling.test.ts` fail if the two ever disagree.
   const focused = streaming
-    ? 60_000 / POLL_MS.klines + 60_000 / POLL_MS.venues
+    ? 60_000 / candlePollMs(true) + 60_000 / POLL_MS.venues
     : requestsPerDay() / (60 * 24);
-  const extra = (charts - 1) * (60_000 / EXTRA_PANE_MS);
+  const extra = (charts - 1) * (60_000 / candlePollMs(false));
   return Math.round((focused + extra) * 60 * 24);
 }
 

@@ -20,7 +20,7 @@ import {
 import { fetchKlines } from "@/lib/api";
 import type { MarketSource } from "@/lib/market";
 import { createLiveFeed, type LiveFeed, type LiveStatus } from "@/lib/live";
-import { EXTRA_PANE_MS, POLL_MS, startVisiblePolling } from "@/lib/polling";
+import { candlePollMs, startVisiblePolling } from "@/lib/polling";
 import { sma, ema, bollinger, rsi, macd, vwap } from "@/lib/indicators";
 import { findSymbol } from "@/lib/symbols";
 import { formatPrice, formatPct, formatCompact, chartPriceDecimals, formatChartPrice } from "@/lib/format";
@@ -207,6 +207,16 @@ export default function ChartPanel({
    */
   const comparison = compare && focused;
 
+  /**
+   * How often this chart re-fetches candle history.
+   *
+   * Derived here rather than decided inline so the effect below can depend on
+   * the value instead of on the inputs to it: `candlePollMs` is the unit-tested
+   * rule, and anything added to that rule reaches the dependency list through
+   * this constant. See the effect's own comment for why that is the point.
+   */
+  const cadence = candlePollMs(focused);
+
   // Fetch candles (poll for live updates)
   useEffect(() => {
     let alive = true;
@@ -223,16 +233,19 @@ export default function ChartPanel({
         if (alive) setLoadedKey(`${symbol}:${interval}`);
       }
     }
-    const stopPolling = startVisiblePolling(load, focused ? POLL_MS.klines : EXTRA_PANE_MS);
+    const stopPolling = startVisiblePolling(load, cadence);
     return () => {
       alive = false;
       stopPolling();
     };
-    // `focused` is a dependency because it *is* the cadence: a chart that gains
-    // the focus has to start refreshing at the normal rate, and one that loses it
-    // has to drop to the slow rate, or the cost the budget was computed from is
-    // not the cost actually paid.
-  }, [symbol, interval, focused]);
+    // The dependency is `cadence`, not `focused`. Focus *decides* the cadence
+    // and `candlePollMs` is the rule that decides it, so depending on the result
+    // means any future input to that rule arrives here already accounted for. A
+    // missing entry here would silently poll at the wrong rate and turn the
+    // documented hosting cost into a fiction — and nothing else would catch it:
+    // `eslint-plugin-react-hooks` v7 dropped `exhaustive-deps`, so the linter
+    // that used to find this class of bug no longer reports it.
+  }, [symbol, interval, cadence]);
 
   /**
    * Live candles, streamed straight from the exchange.

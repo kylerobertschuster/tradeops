@@ -84,7 +84,7 @@ many requests the browser makes. TradeOps keeps that low deliberately:
 | Prices stream over a websocket (`src/lib/live.ts`) | Live prices cost **zero** Worker requests |
 | REST polling is only a fallback | Ticker polling is skipped entirely while streaming |
 | Background tabs stop polling (`src/lib/polling.ts`) | A hidden tab costs nothing |
-| Cadences of 15s / 30s / 30s / 120s (fallback only) | Bounds the cost when streaming is unavailable |
+| Cadences of 15s / 30s / 30s / 60s / 120s (fallback only) | Bounds the cost when streaming is unavailable |
 | Extra charts refresh history at 120s and skip the venue table | Four charts cost 6,480 requests/day, **less** than one chart's 13,680 ceiling |
 
 The watchlist and the chart connect straight to Binance's public market-data
@@ -92,22 +92,28 @@ websocket from the browser. That traffic never reaches the Worker, so it is
 free — and it is what makes a **1-second chart** affordable, since polling at
 1s would be 86,400 requests/day per open tab.
 
-What remains is the chart's candle history, which is re-fetched every 30s to
-recompute indicators. That is roughly **2,900 requests/day** for the default
-market/chart view, rising to about **5,800/day** with the on-chain tab open
-(`RightPanel` only mounts `OnchainPanel` when that tab is active). A hidden tab
-costs nothing.
+What remains is the chart's candle history, re-fetched every 30s to recompute
+indicators, plus the multi-venue fan-out, re-fetched every 60s by whichever
+chart is focused. One chart in its normal streaming state is **4,320
+requests/day**; four charts are **6,480**, because the three that are not
+focused pay the slow 120s history cadence and nothing else. A hidden tab costs
+nothing.
 
-So the free tier covers on the order of **17 always-open foreground tabs**, or
-**34** on the default view — far more when tabs are hidden for part of the day,
-as they usually are.
+The ceiling — every socket down at once, so the ticker poll comes back — is
+**13,680 requests/day**, and that is the number the cadences are pinned against.
+The case worth stating plainly is four charts *with* the ceiling: **15,840**,
+which is above it. That is written down rather than hidden, because four sockets
+failing at once is already a degraded state and a chart that never updates is
+worse than the requests. `src/lib/polling.test.ts` pins all four figures — and
+reads this file — so a future change that shortens a cadence, or a sentence here
+that stops matching the code, fails the test run.
 
-`src/lib/polling.test.ts` fails if a future change shortens these cadences past
-that budget, so the hosting arithmetic cannot silently regress.
+So the free tier covers on the order of **23 always-open foreground tabs** as
+normally used, or about **7** in the all-REST worst case — more when tabs are
+hidden for part of the day, as they usually are.
 
 Beyond that, Workers Paid is **$5/month** including 10M requests and 30M
-CPU-milliseconds, then $0.30 per additional million requests — around 27
-always-open tabs before any overage.
+CPU-milliseconds, then $0.30 per additional million requests.
 
 #### Caveats worth knowing
 

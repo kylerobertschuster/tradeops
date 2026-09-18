@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  EXTRA_PANE_MS,
   POLL_MS,
   WORKERS_FREE_REQUESTS_PER_DAY,
+  candlePollMs,
   requestsPerDay,
   requestsPerDayPanes,
   startVisiblePolling,
@@ -153,5 +156,64 @@ describe("startVisiblePolling", () => {
 
     stop();
     expect(listenerCount()).toBe(0);
+  });
+});
+
+/**
+ * The cadence rule is a function so it can be tested here rather than only by a
+ * component test that does not exist. These two tests are the reason it exists:
+ * the first pins the rule, the second proves the hosting budget is that same
+ * rule's arithmetic and not a copy of it.
+ */
+describe("a chart's polling cadence", () => {
+  const perDay = (ms: number) => Math.round((60_000 / ms) * 60 * 24);
+
+  it("is the focused cadence for the focused chart, and the slow one for the rest", () => {
+    expect(candlePollMs(true)).toBe(POLL_MS.klines);
+    expect(candlePollMs(false)).toBe(EXTRA_PANE_MS);
+    expect(candlePollMs(false)).toBeGreaterThan(candlePollMs(true));
+  });
+
+  it("is the arithmetic the per-day budget is made of, so the two cannot disagree", () => {
+    const focused = perDay(candlePollMs(true)) + perDay(POLL_MS.venues);
+    const satellites = 3 * perDay(candlePollMs(false));
+
+    // The numbers the README and `requestsPerDayPanes`'s own comment quote.
+    expect(focused, "one chart, streaming").toBe(4_320);
+    expect(satellites, "three satellite charts").toBe(2_160);
+    expect(requestsPerDayPanes(4)).toBe(focused + satellites);
+    expect(requestsPerDayPanes(4)).toBe(6_480);
+  });
+});
+
+/**
+ * Documentation drift is not caught by types or linters, and the free-tier
+ * table is the one place in the README where a stale number is also a broken
+ * promise about hosting. So the README is read as a fixture and its figures are
+ * checked against the functions that compute them: change a cadence and this
+ * fails with the number to go and update.
+ */
+describe("the README's hosting numbers are these functions' numbers", () => {
+  const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
+  const comma = (n: number) => n.toLocaleString("en-US");
+
+  it("quotes every figure the free-tier section claims", () => {
+    const claims: [string, number][] = [
+      ["one chart with streaming up", requestsPerDayPanes(1)],
+      ["four charts with streaming up", requestsPerDayPanes(4)],
+      ["the single-chart REST ceiling", requestsPerDay()],
+      ["four charts with streaming down", requestsPerDayPanes(4, false)],
+    ];
+
+    for (const [what, value] of claims) {
+      expect(readme, `README should quote ${comma(value)} for ${what}`).toContain(comma(value));
+    }
+  });
+
+  it("documents the all-REST four-chart case as being over the ceiling, not under it", () => {
+    // Deliberate, and written down rather than hidden: see `requestsPerDayPanes`.
+    expect(requestsPerDayPanes(4, false)).toBeGreaterThan(requestsPerDay());
+    expect(requestsPerDayPanes(4)).toBeLessThan(requestsPerDay());
+    expect(WORKERS_FREE_REQUESTS_PER_DAY).toBeGreaterThan(requestsPerDayPanes(4, false));
   });
 });
