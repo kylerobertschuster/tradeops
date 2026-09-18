@@ -168,6 +168,21 @@ that is not on that page, so the list cannot quietly fall out of date.
 - **Accounts & cloud sync** — optional login to sync paper portfolios, labels, and watchlists.
 - **Alerts & price notifications.**
 
+## Support
+
+TradeOps is free and stays free — no ads, no paid tier, no accounts. If you want to fund the
+hosted demo anyway, the links live at
+[`/legal#support`](https://trade-ops.vanillalosangeles.workers.dev/legal#support):
+[GitHub Sponsors](https://github.com/sponsors/kylerobertschuster) and
+[Buy Me a Coffee](https://buymeacoffee.com/kylerobertschuster). A donation buys nothing — not a
+feature, not priority, not a support promise.
+
+Running your own instance? Funding belongs to the operator, so it is a constant rather than
+hard-coded UI: set `SUPPORT_LINKS` in [`src/lib/legal.ts`](./src/lib/legal.ts) and the links appear
+in the legal pages' footer and in the terminal's top bar. Leave the list empty — the shipped
+state — and nothing renders: no placeholder, no dead link, and the terms page says the deployment
+accepts no donations.
+
 ## Disclaimer
 
 TradeOps is for **education and research only**. Market data is provided by third-party public APIs and may be delayed or inaccurate. Paper trading uses simulated funds — nothing here is financial advice, and no real assets are involved.

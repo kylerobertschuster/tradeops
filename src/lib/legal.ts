@@ -22,7 +22,7 @@ export const ISSUES_URL = `${REPO_URL}/issues`;
  * The terms say that continued use after a change means acceptance, which is
  * only an honest sentence if this date moves when the wording does.
  */
-export const LAST_UPDATED = "2026-09-14";
+export const LAST_UPDATED = "2026-09-18";
 
 /**
  * The law the terms are read under.
@@ -34,6 +34,43 @@ export const LAST_UPDATED = "2026-09-14";
  * bluffing.
  */
 export const GOVERNING_LAW: string | null = null;
+
+/**
+ * Where someone who wants to fund the project can do it.
+ *
+ * Empty is the shipped state, and it has to be: this repository is also a
+ * template that other people run, and a funding link belongs to whoever pays
+ * the hosting bill, not to the code. While the list is empty every surface that
+ * would show it renders nothing — no placeholder, no dead link, no button that
+ * goes nowhere — the same way `GOVERNING_LAW` above refuses to invent a
+ * jurisdiction. Section 8 of the terms renders as "this deployment accepts no
+ * donations" in that state rather than pretending a choice was made.
+ *
+ * Two rules apply to anything added here, and `legal.test.ts` enforces both:
+ * the address is https, and its host is in `LINK_ONLY_HOSTS` below, because a
+ * reader follows this link and the app never fetches it. It should never point
+ * at a route in this app: payment details are collected by the platform, on
+ * the platform's own site, and no code in this repository receives them.
+ */
+export type SupportLink = {
+  name: string;
+  url: string;
+  /** One line beside the link, so a reader knows what they are being asked for. */
+  note: string;
+};
+
+export const SUPPORT_LINKS: readonly SupportLink[] = [
+  {
+    name: "GitHub Sponsors",
+    url: "https://github.com/sponsors/kylerobertschuster",
+    note: "One-off or monthly, handled by GitHub under GitHub's own terms.",
+  },
+  {
+    name: "Buy Me a Coffee",
+    url: "https://buymeacoffee.com/kylerobertschuster",
+    note: "One-off, no account required.",
+  },
+];
 
 /**
  * Everything this app persists in the user's browser, and nothing else.
@@ -234,8 +271,13 @@ export const CHART_LIBRARY = {
 /**
  * Hosts that are allowed to appear in `src/` without being a data source.
  *
- * The project's own site and store links, and the charting library's — all of
- * them links a reader can follow, none of them fetched. Anything else has to be
- * listed in `SOURCES` and therefore described on the sources page.
+ * The project's own site and store links, the charting library's, and the two
+ * payment platforms a donation can go through — all of them links a reader can
+ * follow, none of them fetched. Anything else has to be listed in `SOURCES` and
+ * therefore described on the sources page.
  */
-export const LINK_ONLY_HOSTS: readonly string[] = ["github.com", "www.tradingview.com"];
+export const LINK_ONLY_HOSTS: readonly string[] = [
+  "github.com",
+  "www.tradingview.com",
+  "buymeacoffee.com",
+];

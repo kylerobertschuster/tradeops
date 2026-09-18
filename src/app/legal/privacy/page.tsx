@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { BROWSER_STORAGE_KEYS, ISSUES_URL, LAST_UPDATED } from "@/lib/legal";
+import { BROWSER_STORAGE_KEYS, ISSUES_URL, LAST_UPDATED, SUPPORT_LINKS } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "Privacy — TradeOps",
@@ -17,7 +17,11 @@ export default function PrivacyPage() {
       <div className="legal-callout">
         <p className="font-semibold text-tv-text">In short</p>
         <ul>
-          <li>No account, no sign-up, no email, no password, no payment details.</li>
+          <li>
+            No account, no sign-up, no email, no password, no payment details.
+            {SUPPORT_LINKS.length > 0 &&
+              " If you donate, the payment platform handles it on their own site, never this one."}
+          </li>
           <li>
             The app stores nothing about you on the server, because there is no database and nothing
             to store it in. Your watchlist, labels and paper account live in your own browser.
@@ -37,6 +41,16 @@ export default function PrivacyPage() {
         anything else that identifies you. There are no forms to fill in and no field to submit. You
         are never asked to sign in, because there is nothing to sign in to.
       </p>
+      {SUPPORT_LINKS.length > 0 && (
+        <p>
+          Donations are the one place money is ever involved, and even then it is not this app that
+          touches it. A donation happens entirely on the payment platform&rsquo;s own site, under
+          that platform&rsquo;s own privacy policy, and what you give them — a name, an email
+          address, card or bank details — never reaches here. There is no webhook, no callback and
+          no code path in this repository that receives payment details or even learns that a payment
+          happened. The link sends your browser to them, and that is the whole of it.
+        </p>
+      )}
 
       <h2>2. What the server handles, and for how long</h2>
       <p>

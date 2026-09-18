@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { BROWSER_STORAGE_KEYS, LINK_ONLY_HOSTS, SOURCES } from "./legal";
+import { BROWSER_STORAGE_KEYS, LINK_ONLY_HOSTS, SOURCES, SUPPORT_LINKS } from "./legal";
 import { DEFAULT_SITE_URL, SITE_URL } from "./site";
 
 /**
@@ -125,6 +125,20 @@ describe("the sources page accounts for every third-party host", () => {
           true,
         );
       }
+    }
+  });
+});
+
+describe("support links are links, never upstreams", () => {
+  it("lists only https links on hosts that are allowed to be links", () => {
+    for (const link of SUPPORT_LINKS) {
+      expect(link.name, "every support link needs a name").toBeTruthy();
+      expect(link.note.length, `${link.name} needs a note`).toBeGreaterThan(10);
+      expect(link.url.startsWith("https://"), `${link.name} must be https`).toBe(true);
+      // Two things at once: the app must never fetch a payment page, and the
+      // host scan above has to be able to account for the hostname. A support
+      // link that is not a link-only host fails one of those.
+      expect(LINK_ONLY_HOSTS, `${link.name} host must be link-only`).toContain(hostOf(link.url));
     }
   });
 });

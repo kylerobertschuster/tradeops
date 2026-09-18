@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { GOVERNING_LAW, ISSUES_URL, LAST_UPDATED } from "@/lib/legal";
+import { GOVERNING_LAW, ISSUES_URL, LAST_UPDATED, SUPPORT_LINKS } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "Terms of Use — TradeOps",
@@ -22,8 +22,8 @@ export default function TermsPage() {
         <ul>
           <li>It is free software for looking at market data and practising trades.</li>
           <li>
-            <strong>No money is involved and no orders are placed.</strong> The trading account is
-            simulated and stored in your browser.
+            <strong>No orders are placed, and the trading involves no money.</strong> The trading
+            account is simulated and stored in your browser.
           </li>
           <li>
             <strong>Nothing here is financial advice,</strong> and it is not a recommendation to buy
@@ -77,6 +77,13 @@ export default function TermsPage() {
         those, it is not tradeOPs.</strong> No hosted version of this project should ever ask for
         them, and anyone who modifies a copy to do so is running something else.
       </p>
+      {SUPPORT_LINKS.length > 0 && (
+        <p>
+          The one place a card number can be entered anywhere near this project is on a payment
+          platform&rsquo;s own site, reached by a donation link — a different site, with no form and
+          no payment code here at all. Section 8 says what a donation is, and what it is not.
+        </p>
+      )}
 
       <h2>4. Market data is third-party and comes as-is</h2>
       <p>
@@ -161,7 +168,38 @@ export default function TermsPage() {
         risk.
       </p>
 
-      <h2>8. Acceptable use</h2>
+      <h2>8. Donations</h2>
+      {SUPPORT_LINKS.length > 0 ? (
+        <>
+          <p>
+            tradeOPs is free and has no paid tier. What a donation link asks for is a voluntary
+            gift: not a purchase, not a subscription, not a fee, and not consideration for the
+            software. It buys no feature, no priority, no support commitment and no exemption from
+            any part of this page — including section 6, whose zero it does not change.
+          </p>
+          <p>
+            Donations are taken by the payment platform named on the{" "}
+            <Link href="/legal#support">support section of the legal index</Link>, on that
+            platform&rsquo;s own site and under that platform&rsquo;s own terms, which are between
+            you and them. This app never receives, processes or stores payment details, and it has no
+            way to connect a donation to your use of it — there is no account here for the two to be
+            connected by.
+          </p>
+          <p>
+            Refunds are at the operator&rsquo;s discretion. Because a donation buys nothing, the only
+            thing there is to return is the transfer itself.
+          </p>
+          <p className="text-tv-muted">
+            This is not tax advice. Depending on where you and the operator are, a donation may or
+            may not be deductible for you, and for the recipient it is generally income. If that
+            matters to you, ask someone qualified where you live.
+          </p>
+        </>
+      ) : (
+        <p>This deployment accepts no donations, and has no paid tier of any kind.</p>
+      )}
+
+      <h2>9. Acceptable use</h2>
       <p>You agree not to:</p>
       <ul>
         <li>
@@ -195,7 +233,7 @@ export default function TermsPage() {
         or its upstream providers.
       </p>
 
-      <h2>9. Third-party data and third-party terms</h2>
+      <h2>10. Third-party data and third-party terms</h2>
       <p>
         Your use of each source&rsquo;s data is also subject to that source&rsquo;s own terms of use,
         and those terms are between you and them. The{" "}
@@ -208,7 +246,7 @@ export default function TermsPage() {
         for their content, their availability or their conduct.
       </p>
 
-      <h2>10. The software, and running your own copy</h2>
+      <h2>11. The software, and running your own copy</h2>
       <p>
         The source code is available under the MIT License, which permits you to use, copy, modify
         and redistribute it. The licence text governs the software and is not replaced by this page.
@@ -221,13 +259,13 @@ export default function TermsPage() {
         not transfer any of it back to us.
       </p>
 
-      <h2>11. Changes to these terms</h2>
+      <h2>12. Changes to these terms</h2>
       <p>
         These terms may be revised as the app changes, and the effective date above will move when
         they are. Continuing to use tradeOPs after a change means you accept the revised version.
       </p>
 
-      <h2>12. Governing law</h2>
+      <h2>13. Governing law</h2>
       {GOVERNING_LAW ? (
         <p>
           These terms are governed by the laws of {GOVERNING_LAW}, and the courts there have
@@ -250,14 +288,14 @@ export default function TermsPage() {
         to apply.
       </p>
 
-      <h2>13. Questions and corrections</h2>
+      <h2>14. Questions and corrections</h2>
       <p>
         Use the <a href={ISSUES_URL} target="_blank" rel="noreferrer noopener">public issue tracker</a>.
         Disagreements about the data itself are best taken to the venue that published it — this app
         can only report what it was given.
       </p>
 
-      <h2>14. How this document was written</h2>
+      <h2>15. How this document was written</h2>
       <p className="text-tv-muted">
         Plainly, because it matters: tradeOPs is a free project and this page was written by the
         people who wrote the software, not by a lawyer. It is an honest, specific attempt to state

@@ -5,6 +5,7 @@ import SymbolSearch from "./SymbolSearch";
 import type { Interval } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { formatUsd, formatPct } from "@/lib/format";
+import { SUPPORT_LINKS } from "@/lib/legal";
 
 const LABELS: Record<Interval, string> = {
   "1s": "1s",
@@ -101,11 +102,25 @@ export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, pric
             {formatUsd(pnl)} ({formatPct(pnlPct)})
           </div>
         </div>
+        {SUPPORT_LINKS.length > 0 && (
+          <Link
+            href="/legal#support"
+            className="shrink-0 text-[11px] text-tv-muted transition-colors hover:text-tv-text"
+          >
+            Support
+          </Link>
+        )}
         {/*
          * The way into /legal from the terminal, which is otherwise a
          * full-height viewport with nowhere to put a footer. Kept to a word and
          * a muted tone: it needs to be findable, not to compete with the
          * prices. Footers on the legal pages link back here.
+         *
+         * "Support" above is the same idea one degree further: it points at the
+         * explanation on /legal rather than at a payment page, so the one link
+         * about money in the terminal chrome cannot read as a paywall. It
+         * renders nothing at all when the operator has set no link, which is
+         * the shipped state.
          */}
         <Link
           href="/legal"

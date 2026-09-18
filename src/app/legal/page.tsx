@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { LAST_UPDATED } from "@/lib/legal";
+import { LAST_UPDATED, SUPPORT_LINKS } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "Legal — TradeOps",
@@ -42,7 +42,7 @@ export default function LegalIndex() {
         <ul>
           <li>
             tradeOPs is free software for looking at public market data and practising trades. No
-            account, no key, no money, nothing you can lose.
+            account, no key, no money required, nothing you can lose.
           </li>
           <li>
             It is not a broker, an exchange, a custodian or an adviser, and it never places an order
@@ -66,6 +66,34 @@ export default function LegalIndex() {
           </li>
         ))}
       </ul>
+      {SUPPORT_LINKS.length > 0 && (
+        <>
+          <h2 id="support">Support</h2>
+          <p>
+            tradeOPs has no ads, no paid tier and no account, and it is not going to add them. If
+            you want to put something back anyway, a donation is the only thing on offer, and it is
+            optional to the point of being unnecessary: nothing about the app changes whether or not
+            anyone ever uses one of these links.
+          </p>
+          <ul>
+            {SUPPORT_LINKS.map((link) => (
+              <li key={link.url}>
+                <a href={link.url} target="_blank" rel="noreferrer noopener">
+                  {link.name}
+                </a>{" "}
+                — {link.note}
+              </li>
+            ))}
+          </ul>
+          <p className="text-tv-muted">
+            A donation is a gift, not a purchase: it buys no feature, no support promise and no
+            exemption from anything on the <Link href="/legal/terms">terms</Link> page, which says
+            so in section 8. Each platform collects the payment details on its own site, under its
+            own terms — this app never sees them, and has no way to connect a donation to you.
+          </p>
+        </>
+      )}
+
       <p className="text-tv-muted">Last updated {LAST_UPDATED}.</p>
     </>
   );
