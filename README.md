@@ -170,6 +170,26 @@ terms — is listed at [`/legal/sources`](https://trade-ops.vanillalosangeles.wo
 rendered from `src/lib/legal.ts`. A test fails the build if any hostname appears in `src/`
 that is not on that page, so the list cannot quietly fall out of date.
 
+#### Before you promote this deployment
+
+Three things here are deliberately left to the operator, and each one says so on the page that
+depends on it. Check all three before pointing an audience at an instance:
+
+1. **Name a governing law.** `GOVERNING_LAW` in [`src/lib/legal.ts`](./src/lib/legal.ts) is `null`,
+   so section 13 of the terms is a warning that no jurisdiction has been named rather than a
+   sentence inventing one. Setting it is a one-line change, and the warning is replaced by the
+   actual law.
+2. **Check the funding links.** `npm run check:support` fetches every configured link and prints a
+   paste-ready array of the ones that answered; `npm run check:support -- --strict` exits non-zero
+   if a *configured* link is dead, which makes it usable as a gate. The addresses intended for this
+   deployment are `github.com/sponsors/kylerobertschuster` and
+   `buymeacoffee.com/kylerobertschuster`, and as of this writing neither resolves — Sponsors is not
+   enabled for that account, and the Buy Me a Coffee page returns 404. That is why `SUPPORT_LINKS`
+   is empty: a link that goes nowhere is worse than no link.
+3. **Point the metadata at your domain.** `NEXT_PUBLIC_SITE_URL` overrides `src/lib/site.ts`,
+   which otherwise falls back to the hosted demo — and that fallback is what the Open Graph tags
+   and canonical links will name if this is deployed somewhere else.
+
 ## Roadmap
 
 - **More indicators** — Fibonacci retracement, Ichimoku, order-flow heatmaps.
@@ -179,19 +199,20 @@ that is not on that page, so the list cannot quietly fall out of date.
 
 ## Support
 
-TradeOps is free and stays free — no ads, no paid tier, no accounts. If you want to fund the
-hosted demo anyway, the links live at
-[`/legal#support`](https://trade-ops.vanillalosangeles.workers.dev/legal#support):
-[GitHub Sponsors](https://github.com/sponsors/kylerobertschuster) and
-[Buy Me a Coffee](https://buymeacoffee.com/kylerobertschuster). A donation buys nothing — not a
-feature, not priority, not a support promise.
+TradeOps is free and stays free — no ads, no paid tier, no accounts. Funding is a constant rather
+than hard-coded UI: set `SUPPORT_LINKS` in [`src/lib/legal.ts`](./src/lib/legal.ts) and the links
+appear in the support section of [`/legal`](https://trade-ops.vanillalosangeles.workers.dev/legal#support),
+which the terminal's top bar links to. Keep the list short — it is meant to be something a reader
+can find, not something they trip over. A donation buys nothing: not a feature, not priority, not a
+support promise.
 
-Running your own instance? Funding belongs to the operator, so it is a constant rather than
-hard-coded UI: set `SUPPORT_LINKS` in [`src/lib/legal.ts`](./src/lib/legal.ts) and the links appear
-in the legal pages' footer and in the terminal's top bar. Keep the list short — it is meant to be
-something a reader can find, not something they trip over. Clear it, and nothing renders: no
-placeholder, no dead link, and the terms page changes to say the deployment accepts no donations.
-This repository ships with the maintainer's own two links set; a fork should replace them.
+**The list ships empty, and this deployment currently ships it empty too.** An address is listed
+only once it has been fetched and has answered, so a funding link cannot be a dead link — the same
+rule that leaves `GOVERNING_LAW` unset rather than inventing a jurisdiction. Run
+`npm run check:support`: it probes every configured link, prints a paste-ready array of the ones
+that resolved, and also reports what the intended addresses for this deployment are doing. With the
+list empty nothing is hidden: the Support link in the top bar lands on a real heading, and that
+heading says this deployment accepts no donations. Section 8 of the terms says the same thing.
 
 ## Disclaimer
 

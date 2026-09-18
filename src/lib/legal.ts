@@ -38,13 +38,19 @@ export const GOVERNING_LAW: string | null = null;
 /**
  * Where someone who wants to fund the project can do it.
  *
- * Empty is the shipped state, and it has to be: this repository is also a
- * template that other people run, and a funding link belongs to whoever pays
- * the hosting bill, not to the code. While the list is empty every surface that
- * would show it renders nothing — no placeholder, no dead link, no button that
- * goes nowhere — the same way `GOVERNING_LAW` above refuses to invent a
- * jurisdiction. Section 8 of the terms renders as "this deployment accepts no
- * donations" in that state rather than pretending a choice was made.
+ * Empty, and empty is the honest state for two separate reasons. This repository
+ * is also a template that other people run, and a funding link belongs to
+ * whoever pays the hosting bill rather than to the code. And a link whose page
+ * does not exist is worse than no link at all: listing an address nobody has
+ * published yet is the same class of lie as inventing a jurisdiction, so nothing
+ * is listed here until the destination has been fetched and has answered.
+ * `npm run check:support` does that fetching and prints a paste-ready array of
+ * the links that resolved.
+ *
+ * Empty does not mean hidden. The support section of the legal index still
+ * renders, because the top bar's Support link has to land on a heading, and it
+ * says this deployment accepts no donations — the same sentence section 8 of the
+ * terms uses in the same state.
  *
  * Two rules apply to anything added here, and `legal.test.ts` enforces both:
  * the address is https, and its host is in `LINK_ONLY_HOSTS` below, because a
@@ -59,18 +65,7 @@ export type SupportLink = {
   note: string;
 };
 
-export const SUPPORT_LINKS: readonly SupportLink[] = [
-  {
-    name: "GitHub Sponsors",
-    url: "https://github.com/sponsors/kylerobertschuster",
-    note: "One-off or monthly, handled by GitHub under GitHub's own terms.",
-  },
-  {
-    name: "Buy Me a Coffee",
-    url: "https://buymeacoffee.com/kylerobertschuster",
-    note: "One-off, no account required.",
-  },
-];
+export const SUPPORT_LINKS: readonly SupportLink[] = [];
 
 /**
  * Everything this app persists in the user's browser, and nothing else.

@@ -66,15 +66,20 @@ export default function LegalIndex() {
           </li>
         ))}
       </ul>
-      {SUPPORT_LINKS.length > 0 && (
+      {/*
+        Rendered whether or not there are links to show, because the top bar's
+        Support link points at this heading: an empty list must not turn that
+        into a link to nowhere.
+      */}
+      <h2 id="support">Support</h2>
+      <p>
+        tradeOPs has no ads, no paid tier and no account, and it is not going to add them. If you
+        want to put something back anyway, a donation is the only thing on offer, and it is optional
+        to the point of being unnecessary: nothing about the app changes whether or not anyone ever
+        uses one of these links.
+      </p>
+      {SUPPORT_LINKS.length > 0 ? (
         <>
-          <h2 id="support">Support</h2>
-          <p>
-            tradeOPs has no ads, no paid tier and no account, and it is not going to add them. If
-            you want to put something back anyway, a donation is the only thing on offer, and it is
-            optional to the point of being unnecessary: nothing about the app changes whether or not
-            anyone ever uses one of these links.
-          </p>
           <ul>
             {SUPPORT_LINKS.map((link) => (
               <li key={link.url}>
@@ -92,6 +97,15 @@ export default function LegalIndex() {
             own terms — this app never sees them, and has no way to connect a donation to you.
           </p>
         </>
+      ) : (
+        <p className="text-tv-muted">
+          This deployment accepts no donations, and lists no address: a funding link whose page
+          does not exist would be worse than no link at all, and listing one nobody has published
+          is the same mistake as inventing a jurisdiction. Running your own copy? Funding belongs
+          to whoever runs it, not to the code — set <code>SUPPORT_LINKS</code> in{" "}
+          <code>src/lib/legal.ts</code>, and run <code>npm run check:support</code> first, so that
+          anything you list has answered.
+        </p>
       )}
 
       <p className="text-tv-muted">Last updated {LAST_UPDATED}.</p>

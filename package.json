@@ -16,6 +16,7 @@
     "dev": "next dev",
     "start": "next start",
     "lint": "eslint",
+    "check:support": "node scripts/check-support-links.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
