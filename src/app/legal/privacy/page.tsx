@@ -84,9 +84,9 @@ export default function PrivacyPage() {
 
       <h2>3. What is stored in your browser</h2>
       <p>
-        Two things are saved in your browser&rsquo;s local storage so the app still looks the way you
-        left it. They stay on your device. There is no code that uploads them, and the server never
-        sees them:
+        These are saved in your browser&rsquo;s local storage so the app still looks the way you left
+        it. They stay on your device. There is no code that uploads them, and the server never sees
+        them:
       </p>
       <ul>
         {BROWSER_STORAGE_KEYS.map((entry) => (

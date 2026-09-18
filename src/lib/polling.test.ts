@@ -3,6 +3,7 @@ import {
   POLL_MS,
   WORKERS_FREE_REQUESTS_PER_DAY,
   requestsPerDay,
+  requestsPerDayPanes,
   startVisiblePolling,
 } from "./polling";
 
@@ -66,6 +67,22 @@ describe("poll cadences", () => {
     expect(requestsPerDay({ only: 60_000 })).toBe(1440);
     // Twice per minute.
     expect(requestsPerDay({ only: 30_000 })).toBe(2880);
+  });
+
+  it("keeps a four-chart layout inside the one-chart ceiling", () => {
+    // Two requests a minute for candle history plus one for the venue fan-out,
+    // then half a request a minute for each extra chart (120s each).
+    expect(requestsPerDayPanes(1)).toBe(4320);
+    expect(requestsPerDayPanes(4)).toBe(6480);
+    expect(requestsPerDayPanes(4)).toBeLessThanOrEqual(requestsPerDay());
+  });
+
+  it("writes down the one case that costs more than the ceiling", () => {
+    // Four charts with every socket down: the all-REST single-chart figure plus
+    // three slow refreshes. Above the 14,000 ceiling on purpose — see the note
+    // on `requestsPerDayPanes` — and pinned here so it cannot drift without
+    // somebody deciding it should.
+    expect(requestsPerDayPanes(4, false)).toBe(15_840);
   });
 
   it("does not poll faster than the slowest sensible dashboard cadence", () => {

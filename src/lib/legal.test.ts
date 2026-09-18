@@ -202,7 +202,7 @@ describe("the privacy page's claims are true of the code", () => {
     ).toEqual(BROWSER_STORAGE_KEYS.map((entry) => entry.key).sort());
   });
 
-  it("writes to browser storage only from the two documented stores", () => {
+  it("writes to browser storage only from the documented stores", () => {
     // Belt and braces: the key list above is only complete if every writer is a
     // zustand store, so a direct `localStorage.setItem` elsewhere must fail.
     const offenders = FILES.filter(

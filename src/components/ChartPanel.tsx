@@ -20,7 +20,7 @@ import {
 import { fetchKlines } from "@/lib/api";
 import type { MarketSource } from "@/lib/market";
 import { createLiveFeed, type LiveFeed, type LiveStatus } from "@/lib/live";
-import { POLL_MS, startVisiblePolling } from "@/lib/polling";
+import { EXTRA_PANE_MS, POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { sma, ema, bollinger, rsi, macd, vwap } from "@/lib/indicators";
 import { findSymbol } from "@/lib/symbols";
 import { formatPrice, formatPct, formatCompact, chartPriceDecimals, formatChartPrice } from "@/lib/format";
@@ -104,9 +104,29 @@ type Props = {
   symbol: string;
   interval: Interval;
   ticker?: Ticker;
+  /**
+   * Whether this is the chart the toolbar, search and watchlist act on.
+   *
+   * Focus decides two things beyond the keyboard: the venue fan-out is polled
+   * here and nowhere else, and the candle history is refreshed at the normal
+   * cadence rather than the slow one. A single-chart layout passes `true` and
+   * never thinks about it again.
+   */
+  focused?: boolean;
+  /** True when more than one chart is on screen, so focus needs showing. */
+  framed?: boolean;
+  /** Called when this chart is clicked, to make it the focused one. */
+  onFocus?: () => void;
 };
 
-export default function ChartPanel({ symbol, interval, ticker }: Props) {
+export default function ChartPanel({
+  symbol,
+  interval,
+  ticker,
+  focused = true,
+  framed = false,
+  onFocus,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<Record<string, ISeriesApi<SeriesType>>>({});
@@ -170,11 +190,22 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   /** Which exchange served the candles currently on screen. */
   const [source, setSource] = useState<MarketSource | null>(null);
 
-  const { data: venues, loading: venuesLoading, error: venuesError } = useVenues(symbol, interval);
+  const { data: venues, loading: venuesLoading, error: venuesError } = useVenues(symbol, interval, focused);
   /** Venues that actually returned candles for this symbol and interval. */
   const venueLines = (venues?.series ?? []).filter((s) => s.candles.length > 0);
   const venueSeries = venues?.series ?? [];
   const venueTickers = venues?.tickers ?? [];
+
+  /**
+   * The comparison overlay belongs to the focused chart.
+   *
+   * It is the focused chart that polls the venue fan-out, so an unfocused chart
+   * drawing the overlay would be drawing lines that nothing is refreshing, above
+   * a table that is not on screen. Gating the overlay on the focus — rather than
+   * clearing `compare` when it moves — means the pane you come back to is still
+   * the pane you left, and nothing has to be written to state to make that true.
+   */
+  const comparison = compare && focused;
 
   // Fetch candles (poll for live updates)
   useEffect(() => {
@@ -192,12 +223,16 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
         if (alive) setLoadedKey(`${symbol}:${interval}`);
       }
     }
-    const stopPolling = startVisiblePolling(load, POLL_MS.klines);
+    const stopPolling = startVisiblePolling(load, focused ? POLL_MS.klines : EXTRA_PANE_MS);
     return () => {
       alive = false;
       stopPolling();
     };
-  }, [symbol, interval]);
+    // `focused` is a dependency because it *is* the cadence: a chart that gains
+    // the focus has to start refreshing at the normal rate, and one that loses it
+    // has to drop to the slow rate, or the cost the budget was computed from is
+    // not the cost actually paid.
+  }, [symbol, interval, focused]);
 
   /**
    * Live candles, streamed straight from the exchange.
@@ -451,9 +486,9 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       }
     };
 
-    setCandleViewVisible(seriesRef.current, !compare);
+    setCandleViewVisible(seriesRef.current, !comparison);
 
-    if (!compare) {
+    if (!comparison) {
       for (const v of VENUES) removeLine(v.id);
       chart.priceScale("right").applyOptions({ mode: PriceScaleMode.Normal });
       fitCompareRef.current = "";
@@ -490,7 +525,7 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       fitCompareRef.current = key;
       chart.timeScale().fitContent();
     }
-  }, [compare, venueLines, symbol, interval]);
+  }, [comparison, venueLines, symbol, interval]);
 
   /**
    * Volume and the oscillators own their own price scales, so they are
@@ -679,10 +714,11 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
     // A freshly created indicator series is visible by default, so compare mode
     // has to re-assert itself after every indicator rebuild — the candle
     // refresh runs every 30s and would otherwise pop a 20-bar SMA over the
-    // venue overlay. `compare` is a dependency for exactly this reason.
-    setCandleViewVisible(seriesRef.current, !compare);
+    // venue overlay. `comparison` is a dependency for exactly this reason, and
+    // it carries the focus with it.
+    setCandleViewVisible(seriesRef.current, !comparison);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candles, inds, compare]);
+  }, [candles, inds, comparison]);
 
   const last = candles[candles.length - 1];
 
@@ -703,7 +739,17 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   const toggleInd = (key: IndKey) => setInds((prev) => ({ ...prev, [key]: !prev[key] }));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      // Focus follows the click, and in the capture phase so it happens before
+      // anything inside the chart acts on it: clicking the indicators menu in a
+      // chart that is not focused should aim the next symbol change at that
+      // chart, not at the one you were looking at before. When only one chart
+      // is on screen `onFocus` is undefined, so this costs nothing.
+      onPointerDownCapture={onFocus}
+      className={`flex min-h-0 flex-1 flex-col ${
+        framed && focused ? "ring-1 ring-inset ring-tv-accent/60" : ""
+      }`}
+    >
       {/* Header — the asset name and the "Indicators" label are dropped on
           narrow screens; the symbol, price and interval are the essentials. */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-tv-border px-3 sm:px-4">
@@ -828,7 +874,7 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
           venue's latest candle, which is not on screen, and an unlabelled
           Open/High/Low/Close above an overlay of several venues reads as though
           it described all of them. The strip's per-venue columns replace it. */}
-      {!compare && (
+      {!comparison && (
         <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-0.5 border-b border-tv-border px-4 py-1.5 text-[11px] tabular-nums">
           <Stat label="Open" value={last ? formatPrice(last.open) : "—"} />
           <Stat label="High" value={highValue} title={rangeTitle} />
@@ -841,7 +887,7 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       {/* Chart */}
       <div className="relative min-h-0 flex-1">
         <div ref={containerRef} className="absolute inset-0" />
-        {!compare && loading && candles.length === 0 && (
+        {!comparison && loading && candles.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-tv-bg">
             <div className="flex items-center gap-2 text-[13px] text-tv-muted">
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-tv-border border-t-tv-accent" />
@@ -849,12 +895,12 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
             </div>
           </div>
         )}
-        {!compare && error && candles.length === 0 && (
+        {!comparison && error && candles.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-tv-bg">
             <p className="max-w-xs text-center text-[13px] text-tv-down">{error}</p>
           </div>
         )}
-        {compare && venueLines.length === 0 && (
+        {comparison && venueLines.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-tv-bg">
             <p className="max-w-xs text-center text-[13px] text-tv-muted">
               {venuesLoading
@@ -863,7 +909,7 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
             </p>
           </div>
         )}
-        {compare && venueLines.length > 0 && (
+        {comparison && venueLines.length > 0 && (
           <div className="pointer-events-none absolute left-3 top-2 z-10 flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded bg-tv-bg/80 px-2 py-1 text-[10px] backdrop-blur-sm">
             <span className="font-medium uppercase tracking-wider text-tv-muted">
               % change · {venues?.bars ?? 0} bars
@@ -881,16 +927,34 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
         )}
       </div>
 
-      <VenueStrip
-        series={venueSeries}
-        tickers={venueTickers}
-        symbol={symbol}
-        interval={interval}
-        compare={compare}
-        onCompare={setCompare}
-        loading={venuesLoading}
-        error={venuesError}
-      />
+      {/*
+       * The venue table belongs to the focused chart.
+       *
+       * It is the one piece of this screen whose cost is not per-chart — one
+       * request fanning out to twelve upstream ones — and four copies of it
+       * would be four times the cost to show the same table four times over.
+       * The charts that are not focused say where it went, rather than leaving a
+       * silent gap where a comparison used to be.
+       */}
+      {focused ? (
+        <VenueStrip
+          series={venueSeries}
+          tickers={venueTickers}
+          symbol={symbol}
+          interval={interval}
+          compare={comparison}
+          onCompare={setCompare}
+          loading={venuesLoading}
+          error={venuesError}
+        />
+      ) : (
+        <div className="flex h-9 shrink-0 items-center gap-2 border-t border-tv-border px-3 text-[11px] text-tv-muted">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-tv-muted" />
+          <span className="truncate">
+            Venue table and comparison run in the focused chart — click this one to focus it.
+          </span>
+        </div>
+      )}
     </div>
   );
 }

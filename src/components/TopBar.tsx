@@ -5,6 +5,7 @@ import SymbolSearch from "./SymbolSearch";
 import type { Interval } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { formatUsd, formatPct } from "@/lib/format";
+import { PANE_COUNTS, type PaneCount } from "@/lib/layout";
 import { SUPPORT_LINKS } from "@/lib/legal";
 
 const LABELS: Record<Interval, string> = {
@@ -18,6 +19,13 @@ const LABELS: Record<Interval, string> = {
   "1w": "1W",
 };
 
+/** Spelled out rather than "2 charts", so all three read the same way. */
+const PANE_LABELS: Record<PaneCount, string> = {
+  1: "One chart",
+  2: "Two charts",
+  4: "Four charts",
+};
+
 type Props = {
   interval: Interval;
   onInterval: (i: Interval) => void;
@@ -26,10 +34,23 @@ type Props = {
   pnlPct: number;
   /** False when some position had no live price and was valued at cost. */
   priced: boolean;
+  /** How many charts the layout shows, and how to change that. */
+  panes: PaneCount;
+  onPanes: (panes: PaneCount) => void;
   onSelectSymbol: (symbol: string) => void;
 };
 
-export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, priced, onSelectSymbol }: Props) {
+export default function TopBar({
+  interval,
+  onInterval,
+  panes,
+  onPanes,
+  equity,
+  pnl,
+  pnlPct,
+  priced,
+  onSelectSymbol,
+}: Props) {
   const up = pnl >= 0;
   // A tilde marks totals that include a position valued at cost rather than at
   // market, so an approximate figure cannot pass for an exact one.
@@ -75,6 +96,34 @@ export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, pric
             }`}
           >
             {LABELS[iv]}
+          </button>
+        ))}
+      </nav>
+
+      {/*
+       * Layouts. The counts are 1, 2 and 4 — the ones that tile a rectangle —
+       * and the control sits with the timeframes because it is the same kind of
+       * choice: how much of the market you want on one screen. Switching keeps
+       * every chart's pair and timeframe, so this is safe to press.
+       */}
+      <nav
+        className="flex shrink-0 items-center gap-0.5 rounded border border-tv-border p-0.5"
+        aria-label="Chart layout"
+      >
+        {PANE_COUNTS.map((count) => (
+          <button
+            key={count}
+            onClick={() => onPanes(count)}
+            aria-pressed={panes === count}
+            title={PANE_LABELS[count]}
+            aria-label={PANE_LABELS[count]}
+            className={`rounded p-1 transition-colors ${
+              panes === count
+                ? "bg-tv-accent text-white"
+                : "text-tv-muted hover:bg-tv-panel2 hover:text-tv-text"
+            }`}
+          >
+            <LayoutIcon count={count} />
           </button>
         ))}
       </nav>
@@ -130,5 +179,36 @@ export default function TopBar({ interval, onInterval, equity, pnl, pnlPct, pric
         </Link>
       </div>
     </header>
+  );
+}
+
+/**
+ * A tiny diagram of the layout it selects.
+ *
+ * Four squares in a 2×2 say "four charts" faster than the word does, and inside
+ * a fourteen-pixel box a label would be unreadable anyway.
+ */
+function LayoutIcon({ count }: { count: PaneCount }) {
+  const cells: [number, number, number, number][] =
+    count === 1
+      ? [[1, 1, 12, 12]]
+      : count === 2
+        ? [
+            [1, 1, 5.5, 12],
+            [7.5, 1, 5.5, 12],
+          ]
+        : [
+            [1, 1, 5.5, 5.5],
+            [7.5, 1, 5.5, 5.5],
+            [1, 7.5, 5.5, 5.5],
+            [7.5, 7.5, 5.5, 5.5],
+          ];
+
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden>
+      {cells.map(([x, y, w, h]) => (
+        <rect key={`${x}-${y}`} x={x} y={y} width={w} height={h} rx="1.5" />
+      ))}
+    </svg>
   );
 }

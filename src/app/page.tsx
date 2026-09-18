@@ -10,14 +10,14 @@ import { fetchTickers } from "@/lib/api";
 import { createLiveFeed, type LiveFeed } from "@/lib/live";
 import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { CURATED } from "@/lib/symbols";
+import { FALLBACK_SLOT, type PaneCount } from "@/lib/layout";
 import { usePaperStore } from "@/store/paperTrading";
 import { portfolioValue } from "@/lib/portfolio";
 import { useLabelsStore } from "@/store/labels";
-import type { Interval, Ticker } from "@/lib/types";
+import { useLayoutStore } from "@/store/layout";
+import type { Ticker } from "@/lib/types";
 
 export default function Home() {
-  const [symbol, setSymbol] = useState("BTCUSDT");
-  const [interval, setIntervalState] = useState<Interval>("15m");
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   /** True while every provider is refusing, so the board may be stale. */
   const [stale, setStale] = useState(false);
@@ -27,6 +27,28 @@ export default function Home() {
   /** Only meaningful below `lg`; on desktop all three panels are shown. */
   const [pane, setPane] = useState<Pane>("chart");
 
+  const panes = useLayoutStore((s) => s.panes);
+  const focus = useLayoutStore((s) => s.focus);
+  const slots = useLayoutStore((s) => s.slots);
+  const setPanes = useLayoutStore((s) => s.setPanes);
+  const setFocus = useLayoutStore((s) => s.setFocus);
+  const setSymbol = useLayoutStore((s) => s.setSymbol);
+  const setIntervalState = useLayoutStore((s) => s.setInterval);
+
+  /**
+   * The focused chart is what the toolbar, the search and the watchlist act on.
+   *
+   * In a single-chart layout, which is the default, that is the only chart
+   * there is, so `symbol` and `interval` here mean exactly what they meant when
+   * they were local state: the pair on screen. The fallback covers the first
+   * render, before the stored layout has rehydrated.
+   */
+  const active = slots[focus] ?? FALLBACK_SLOT;
+  const symbol = active.symbol;
+  const interval = active.interval;
+  /** The charts actually on screen — the rest keep their state while hidden. */
+  const visible = slots.slice(0, panes);
+
   const cash = usePaperStore((s) => s.cash);
   const positions = usePaperStore((s) => s.positions);
 
@@ -34,14 +56,19 @@ export default function Home() {
   useEffect(() => {
     void usePaperStore.persist.rehydrate();
     void useLabelsStore.persist.rehydrate();
+    void useLayoutStore.persist.rehydrate();
   }, []);
 
   const symbolsKey = useMemo(() => {
     const set = new Set<string>(CURATED.map((s) => s.symbol));
-    set.add(symbol);
+    // Every chart on screen streams its own pair: a price that only moves in
+    // the chart you are looking at is not a live price. One socket carries all
+    // of them, so the fourth chart adds traffic to the connection that is
+    // already open rather than a connection of its own.
+    for (const slot of slots.slice(0, panes)) set.add(slot.symbol);
     for (const p of Object.keys(positions)) set.add(p);
     return Array.from(set).sort().join(",");
-  }, [symbol, positions]);
+  }, [slots, panes, positions]);
 
   /**
    * One websocket for the whole session.
@@ -120,6 +147,29 @@ export default function Home() {
    */
   const paneClass = (name: Pane) => (pane === name ? "flex" : "hidden lg:flex");
 
+  /**
+   * The charts tile from `lg` up and stack below it.
+   *
+   * On a phone a 2×2 grid of 300-pixel charts is four unreadable charts, so the
+   * layout becomes a vertical scroll of full-height ones instead — the same
+   * charts, one screen at a time, which is what the single-pane mobile view
+   * already does for the panels. Every visible chart stays mounted in both
+   * cases: hiding one with CSS would leave its socket and its polling running,
+   * which is the worst of both.
+   *
+   * The `gap-px` over a `bg-tv-border` parent draws the dividers, so there is no
+   * border logic and no double lines where panes meet.
+   */
+  const gridClass: Record<PaneCount, string> = {
+    1: "lg:grid-cols-1",
+    // `grid-rows-1` rather than an implicit row: the chart canvas is absolutely
+    // positioned, so it contributes no height of its own and an auto-sized row
+    // would only be as tall as the header. The track has to be told to take the
+    // space, which `minmax(0, 1fr)` does and `auto` does not.
+    2: "lg:grid-cols-2 lg:grid-rows-1",
+    4: "lg:grid-cols-2 lg:grid-rows-2",
+  };
+
   /** Picking an asset on mobile should land you on it, not on the list. */
   const selectSymbol = (next: string) => {
     setSymbol(next);
@@ -131,6 +181,8 @@ export default function Home() {
       <TopBar
         interval={interval}
         onInterval={setIntervalState}
+        panes={panes}
+        onPanes={setPanes}
         equity={equity}
         pnl={pnl}
         pnlPct={pnlPct}
@@ -152,7 +204,22 @@ export default function Home() {
         <main
           className={`min-h-0 min-w-0 flex-1 flex-col ${paneClass("chart")}`}
         >
-          <ChartPanel symbol={symbol} interval={interval} ticker={tickers[symbol]} />
+          <div
+            className={`flex min-h-0 flex-1 flex-col gap-px overflow-y-auto bg-tv-border lg:grid lg:overflow-hidden ${gridClass[panes]}`}
+          >
+            {visible.map((slot, i) => (
+              <div key={i} className="flex h-[70vh] min-w-0 flex-col bg-tv-bg lg:h-auto lg:min-h-0">
+                <ChartPanel
+                  symbol={slot.symbol}
+                  interval={slot.interval}
+                  ticker={tickers[slot.symbol]}
+                  focused={panes === 1 || i === focus}
+                  framed={panes > 1}
+                  onFocus={panes > 1 ? () => setFocus(i) : undefined}
+                />
+              </div>
+            ))}
+          </div>
         </main>
         <div
           className={`min-h-0 flex-1 flex-col lg:w-80 lg:flex-none ${paneClass("trade")}`}

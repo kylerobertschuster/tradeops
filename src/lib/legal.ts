@@ -88,6 +88,11 @@ export const BROWSER_STORAGE_KEYS: readonly { key: string; holds: string }[] = [
     key: "tradeops-labels-v1",
     holds: "Names you have given to on-chain addresses, so they read as labels next time.",
   },
+  {
+    key: "tradeops-layout-v1",
+    holds:
+      "Your chart layout — how many charts you had open, and which pair and timeframe each one showed.",
+  },
 ];
 
 /** A third party whose data or pages this app puts in front of you. */

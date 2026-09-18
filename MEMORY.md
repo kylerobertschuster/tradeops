@@ -26,6 +26,17 @@ Done:
   set — `unsupported-interval | unlisted | delisted | blocked | rate-limited |
   timeout | unreachable | empty` — because "not listed here" and "we could not
   reach this venue" are different claims.
+- **Multi-chart layouts (2026-09-18).** 1 / 2 / 4 charts in `src/lib/layout.ts`
+  + `src/store/layout.ts`, each chart keeping its own pair and timeframe. The
+  chart you click is the one the toolbar, search, watchlist and order ticket act
+  on; collapsing 4 → 1 → 4 returns the charts it hid, because the state always
+  holds `SLOT_COUNT` slots whether or not they are on screen. Cost: the venue
+  fan-out is the only request that is not per-chart, so it belongs to the
+  focused chart, and the others refresh history at `EXTRA_PANE_MS` (120s) and
+  say where the table went instead of showing it. Four charts come to 6,480
+  requests/day, **under** the 13,680 single-chart ceiling. `tradeops-layout-v1`
+  joined `BROWSER_STORAGE_KEYS`, and the privacy page's hard-coded "two things"
+  became a sentence with no count in it — the list below it is the list.
 - **Hosted-deploy truth fixes (2026-09-18, `7568187`).** Binance.US joins as a
   venue row *and* a candle provider, because Cloudflare's egress gets 403/451 from
   Binance and 403 from Bybit; hard refusals are remembered per host for ten
@@ -192,7 +203,9 @@ Launch readiness first, then features:
   strictest and least useful dependency — is gone. (BigInt-safe token math and
   honest transfer timestamps are done.)
 - **Next features, in the order they were chosen:**
-  1. Multi-chart layouts (2×2 panes) + unlimited indicators per chart.
+  1. Multi-chart layouts (2×2 panes) + unlimited indicators per chart. **Done
+     2026-09-18** — the panes landed; unlimited indicators were already there
+     (all nine toggles run at once).
   2. Bar replay + backtest against the existing paper engine.
   3. Alerts — client-side first, then Workers Cron + KV so they fire with no
      tab open, and that is the single upgrade TradingView charges $59.95/mo for.
@@ -204,8 +217,11 @@ Launch readiness first, then features:
   options real-time, have no community scripts or screeners, and no
   desktop/mobile apps. Note that 110+ drawing tools and Pine Script **are** free
   on their Basic plan, so those are parity work, not a wedge.
-- Also open: measure the Workerd subrequest and CPU budgets (above). The
-  attribution/ToS page is done (`/legal/sources`), but **the upstream terms are
+- Also open: measure the Workerd subrequest and CPU budgets (above). Every chart
+  opens its own websocket to Binance — free in Worker terms, since it never
+  reaches Cloudflare, but it is four sockets in a four-chart tab, so a shared
+  per-tab feed is the obvious cleanup if that ever becomes the thing that hurts.
+  The attribution/ToS page is done (`/legal/sources`), but **the upstream terms are
   still unread** for Binance (202 bot challenge), Coinbase (403) and Kraken
   (JS-rendered) — those clauses are unverified and must not be quoted as fact.
   Redistributing exchange market data is the biggest unaddressed launch risk; the

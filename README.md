@@ -18,6 +18,7 @@ Professional-grade market analytics (Chainalysis, TRM Labs, Nansen, TradingView)
 
 - **TradingView-style charting** — powered by TradingView's own open-source [Lightweight Charts](https://github.com/tradingview/lightweight-charts). Candlesticks, volume, and overlay indicators.
 - **Indicators** — Volume, SMA 20/50, EMA 20/50, Bollinger Bands (20, 2), RSI 14, MACD (12, 26, 9), and VWAP, with 7 timeframes (`1m` → `1w`).
+- **Multi-chart layouts** — one chart, two side by side, or four in a 2×2 grid. Each chart keeps its own pair and timeframe, the one you click is the one the toolbar and watchlist act on, and switching layouts never loses the charts it hides. Extra charts refresh at a slower cadence and leave the venue table to the focused chart, so four charts stay inside the request budget one chart already fits in (see [Fitting inside the free tier](#fitting-inside-the-free-tier)).
 - **Live market data** — multi-provider with automatic failover: **Binance → Binance.US → Bybit → Coinbase** for candles and **Binance → OKX → Crypto.com → Coinbase** for 24h stats. A host that refuses this network (HTTP 403/451, which is what Binance and Bybit answer a datacenter IP) is remembered for ten minutes instead of being retried on every request. **No API key required.**
 - **On-chain analytics** — live whale feed (ERC-20 transfers with an adjustable **≥ $100K / $1M / $5M / $10M** threshold, defaulting to ≥ $1M, across USDC/USDT/DAI/WETH/WBTC/LINK/UNI/AAVE via public RPC, no API key), click-to-inspect any address (inflow/outflow/net + full transfer history), **holder analytics** (top-50 holders per token, concentration share, known-entity names via ENS/verified/tags, total supply, holder count, market cap), and **wallet labeling** (tag addresses as Exchange / Whale / VC / MEV / Exploiter / Contract, persisted locally). One click through to Etherscan for any tx or address.
 - **Watchlist & search** — curated top assets in the sidebar plus fuzzy symbol search.
@@ -84,6 +85,7 @@ many requests the browser makes. TradeOps keeps that low deliberately:
 | REST polling is only a fallback | Ticker polling is skipped entirely while streaming |
 | Background tabs stop polling (`src/lib/polling.ts`) | A hidden tab costs nothing |
 | Cadences of 15s / 30s / 30s / 120s (fallback only) | Bounds the cost when streaming is unavailable |
+| Extra charts refresh history at 120s and skip the venue table | Four charts cost 6,480 requests/day, **less** than one chart's 13,680 ceiling |
 
 The watchlist and the chart connect straight to Binance's public market-data
 websocket from the browser. That traffic never reaches the Worker, so it is
@@ -165,8 +167,9 @@ that is not on that page, so the list cannot quietly fall out of date.
 ## Roadmap
 
 - **More indicators** — Fibonacci retracement, Ichimoku, order-flow heatmaps.
+- **Bar replay & backtesting** — step through history bar by bar, and run a signal against the paper engine over the candles already on screen.
 - **Accounts & cloud sync** — optional login to sync paper portfolios, labels, and watchlists.
-- **Alerts & price notifications.**
+- **Alerts & price notifications** — client-side first, then a scheduled Worker so they fire without a tab open.
 
 ## Support
 
@@ -179,9 +182,10 @@ feature, not priority, not a support promise.
 
 Running your own instance? Funding belongs to the operator, so it is a constant rather than
 hard-coded UI: set `SUPPORT_LINKS` in [`src/lib/legal.ts`](./src/lib/legal.ts) and the links appear
-in the legal pages' footer and in the terminal's top bar. Leave the list empty — the shipped
-state — and nothing renders: no placeholder, no dead link, and the terms page says the deployment
-accepts no donations.
+in the legal pages' footer and in the terminal's top bar. Keep the list short — it is meant to be
+something a reader can find, not something they trip over. Clear it, and nothing renders: no
+placeholder, no dead link, and the terms page changes to say the deployment accepts no donations.
+This repository ships with the maintainer's own two links set; a fork should replace them.
 
 ## Disclaimer
 
