@@ -36,6 +36,32 @@ export class UpstreamTimeoutError extends Error {
   }
 }
 
+/**
+ * A refusal from an upstream, carrying the status code.
+ *
+ * The code is the whole point: some refusals describe the request (429, 500 —
+ * retry, the next one may work) and some describe the network this code is
+ * running on (403, 451 — a datacentre-IP ban or a geo-block, which will fail
+ * identically for every later request). Callers that can tell the two apart
+ * stop paying a dead round trip on every cache miss.
+ */
+export class UpstreamStatusError extends Error {
+  readonly url: string;
+  readonly status: number;
+
+  constructor(url: string, status: number) {
+    super(`HTTP ${status} from ${hostOf(url)}`);
+    this.name = "UpstreamStatusError";
+    this.url = url;
+    this.status = status;
+  }
+
+  /** True when retrying is pointless: the host is refusing this network. */
+  get isHardRefusal(): boolean {
+    return this.status === 403 || this.status === 451;
+  }
+}
+
 function hostOf(url: string): string {
   try {
     return new URL(url).host;

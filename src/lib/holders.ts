@@ -1,12 +1,20 @@
-import { TRACKED_TOKENS } from "./onchain";
+import { TRACKED_TOKENS } from "./tokens";
 import { fetchWithTimeout } from "./http";
 
 /**
  * Holder analytics via BlockScout's public, keyless Ethereum API.
  * Returns top holders + concentration metrics for a tracked token.
+ *
+ * BlockScout rate-limits by caller IP (180 requests a minute, per its own
+ * `x-ratelimit-limit` header) and answers `429 Too many requests` once that
+ * budget is gone. That matters for where this runs: a Cloudflare Worker's
+ * egress address is shared with every other Worker on the edge, so the hosted
+ * deploy has no budget of its own and gets a 429 even on a first, uncached
+ * request. `BLOCKSCOUT_BASE` is therefore also called from the browser, where
+ * the visitor's own IP brings its own allowance — see `fetchHolders` in api.ts.
  */
 
-const BLOCKSCOUT = "https://eth.blockscout.com/api/v2";
+export const BLOCKSCOUT_BASE = "https://eth.blockscout.com/api/v2";
 
 type BlockscoutTag = { name: string; tagType: string };
 
@@ -58,12 +66,19 @@ export type HolderStats = {
 
 const cache = new Map<string, { t: number; data: HolderStats }>();
 
-async function getJson(path: string): Promise<unknown> {
-  const res = await fetchWithTimeout(`${BLOCKSCOUT}${path}`, {
+async function getJson(path: string, baseUrl: string): Promise<unknown> {
+  const res = await fetchWithTimeout(`${baseUrl}${path}`, {
     headers: { accept: "application/json" },
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`BlockScout HTTP ${res.status}`);
+  if (!res.ok) {
+    // 429 deserves its own message: it means the caller's IP has spent
+    // BlockScout's budget, which is a different situation from a broken
+    // endpoint and is the one a visitor is most likely to meet.
+    throw new Error(
+      res.status === 429 ? "BlockScout rate limit reached" : `BlockScout HTTP ${res.status}`,
+    );
+  }
   return res.json();
 }
 
@@ -74,7 +89,17 @@ function knownLabel(a: BlockscoutAddress): string | undefined {
   return tag?.name;
 }
 
-export async function fetchHolderStats(symbol: string): Promise<HolderStats> {
+/**
+ * The token's name, supply, holder count and top holders.
+ *
+ * `baseUrl` is a parameter rather than a constant because the browser calls
+ * BlockScout directly: rate limits are per IP, and the Worker's IP is a
+ * shared, permanently-exhausted one.
+ */
+export async function fetchHolderStats(
+  symbol: string,
+  baseUrl: string = BLOCKSCOUT_BASE,
+): Promise<HolderStats> {
   const token = TRACKED_TOKENS.find((t) => t.symbol === symbol.toUpperCase());
   if (!token) throw new Error(`Untracked token: ${symbol}`);
 
@@ -82,8 +107,8 @@ export async function fetchHolderStats(symbol: string): Promise<HolderStats> {
   if (hit && Date.now() - hit.t < 60_000) return hit.data;
 
   const [info, page] = await Promise.all([
-    getJson(`/tokens/${token.address}`) as Promise<BlockscoutToken>,
-    getJson(`/tokens/${token.address}/holders`) as Promise<{ items: BlockscoutHolderItem[] }>,
+    getJson(`/tokens/${token.address}`, baseUrl) as Promise<BlockscoutToken>,
+    getJson(`/tokens/${token.address}/holders`, baseUrl) as Promise<{ items: BlockscoutHolderItem[] }>,
   ]);
 
   const decimals = Number(info.decimals);

@@ -28,6 +28,7 @@ function stubVenues(handlers: Partial<Record<VenueId, (url: string) => Response>
   const seen: string[] = [];
   const hosts: Record<string, VenueId> = {
     "data-api.binance.vision": "binance",
+    "api.binance.us": "binanceus",
     "api.bybit.com": "bybit",
     "www.okx.com": "okx",
     "api.exchange.coinbase.com": "coinbase",
@@ -548,16 +549,24 @@ describe("fetchAllVenues", () => {
     const seen = stubVenues({});
     await fetchAllVenues("BTCUSDT", "15m", 1000);
 
-    const binanceLimits = seen
-      .filter((u) => u.includes("binance") && u.includes("klines"))
-      .map((u) => Number(new URL(u).searchParams.get("limit")));
+    // Matched on the exact host plus the klines path, not by substring:
+    // "binance" also appears in api.binance.us, and every venue answers a
+    // ticker request on the same host without a `limit`, which `Number(null)`
+    // would score as 0 and fold into this list.
+    const limits = (host: string) =>
+      seen
+        .filter((u) => new URL(u).host === host && u.includes("klines"))
+        .map((u) => Number(new URL(u).searchParams.get("limit")));
     const okxLimits = seen
       .filter((u) => u.includes("okx") && u.includes("candles"))
       .map((u) => Number(new URL(u).searchParams.get("limit")));
 
     // Binance would happily return 1000 bars, but then the two lines would
-    // cover different time ranges and the overlay would be a lie.
-    expect(binanceLimits).toEqual([300]);
+    // cover different time ranges and the overlay would be a lie. Binance.US
+    // is clamped by the same rule — it also caps at 1000 — so it is asserted
+    // separately rather than assumed to follow from its namesake.
+    expect(limits("data-api.binance.vision")).toEqual([300]);
+    expect(limits("api.binance.us")).toEqual([300]);
     expect(okxLimits).toEqual([300]);
   });
 });

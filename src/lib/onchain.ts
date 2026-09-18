@@ -1,4 +1,5 @@
 import { fetchTickers, fetchKlines } from "./market";
+import { TRACKED_TOKENS, type TrackedToken } from "./tokens";
 import { fetchWithTimeout, budgetMs } from "./http";
 import { formatTokenAmount } from "./format";
 import type { Candle } from "./types";
@@ -68,26 +69,6 @@ type RpcLog = {
   transactionHash: string;
   logIndex: string;
 };
-
-export type TrackedToken = {
-  symbol: string;
-  name: string;
-  address: string;
-  decimals: number;
-  fixedPrice?: number;
-  priceSymbol?: string;
-};
-
-export const TRACKED_TOKENS: TrackedToken[] = [
-  { symbol: "USDC", name: "USD Coin", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6, fixedPrice: 1 },
-  { symbol: "USDT", name: "Tether USD", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6, fixedPrice: 1 },
-  { symbol: "DAI", name: "Dai Stablecoin", address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", decimals: 18, fixedPrice: 1 },
-  { symbol: "WETH", name: "Wrapped Ether", address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", decimals: 18, priceSymbol: "ETHUSDT" },
-  { symbol: "WBTC", name: "Wrapped Bitcoin", address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", decimals: 8, priceSymbol: "BTCUSDT" },
-  { symbol: "LINK", name: "Chainlink", address: "0x514910771AF9Ca656af840dff83E8264EcF986CA", decimals: 18, priceSymbol: "LINKUSDT" },
-  { symbol: "UNI", name: "Uniswap", address: "0x1f9840a85c5aF5bf1D1762F925BDADdC4201F984", decimals: 18, priceSymbol: "UNIUSDT" },
-  { symbol: "AAVE", name: "Aave", address: "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9", decimals: 18, priceSymbol: "AAVEUSDT" },
-];
 
 export type WhaleTransfer = {
   symbol: string;

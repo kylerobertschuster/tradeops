@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { RPC_SOURCE_NAMES, SOURCES } from "@/lib/legal";
+import { CHART_LIBRARY, RPC_SOURCE_NAMES, SOURCES } from "@/lib/legal";
 
 /**
  * The sources page, rendered from `SOURCES` in `src/lib/legal.ts`.
@@ -143,6 +143,41 @@ export default function SourcesPage() {
         <code>ETH_RPC_URLS</code> takes a comma-separated list, tried in order, or the value{" "}
         <code>off</code> to switch the on-chain panels off entirely rather than lean on somebody
         else&rsquo;s hardware. If you are deploying this seriously, do that first.
+      </p>
+
+      <h2>What draws the charts</h2>
+      <p>
+        The candles are drawn by <strong>{CHART_LIBRARY.name}</strong>, TradingView&rsquo;s
+        open-source charting library, under the {CHART_LIBRARY.licence} licence. It is software
+        this app runs, not a source it reads from: no price, candle or ticker on any screen came
+        from TradingView, and nothing is sent to them. That is why they are not rows in the table
+        above.
+      </p>
+      <p>
+        Their licence does ask for something in return, and it is the reason this paragraph exists.
+        It requires this notice to be reproduced, and a link to{" "}
+        <a href={CHART_LIBRARY.site} target="_blank" rel="noreferrer noopener">
+          tradingview.com
+        </a>{" "}
+        to be reachable by the people using the charts:
+      </p>
+      <blockquote className="border-l-2 border-tv-border pl-3 text-tv-muted">
+        <p>
+          {CHART_LIBRARY.name}
+          <br />
+          {CHART_LIBRARY.notice}
+        </p>
+      </blockquote>
+      <p>
+        The library ships a small TradingView mark that it draws in the corner of every chart
+        itself, which is enough to satisfy the link on its own. tradeOPs turns that mark off, and
+        carries the notice and the link here instead — one click from the chart, via
+        &ldquo;Sources &amp; terms&rdquo;. The attribution still has to reach you; it just does not
+        have to sit on top of the candles. The library&rsquo;s source is{" "}
+        <a href={CHART_LIBRARY.source} target="_blank" rel="noreferrer noopener">
+          on GitHub
+        </a>
+        .
       </p>
 
       <h2>About the links on this page</h2>

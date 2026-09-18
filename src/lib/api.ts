@@ -5,13 +5,17 @@ import type { WhaleTransfer } from "./onchain";
 import type { HolderStats } from "./holders";
 import type { MarketSource } from "./market";
 import type { VenuesResponse } from "./venues";
+// A value import, not a type one: the browser calls BlockScout itself for
+// holders. `holders.ts` depends only on the token list and the fetch helper,
+// so this pulls no server-side market data into the client bundle.
+import { BLOCKSCOUT_BASE, fetchHolderStats } from "./holders";
 
 export type { WhaleTransfer, HolderStats, VenuesResponse };
 
 /** Client-side fetchers for the local API routes. */
 
 /** The upstreams that can serve candles, and the only accepted header values. */
-const MARKET_SOURCES: readonly MarketSource[] = ["binance", "bybit", "coinbase"];
+const MARKET_SOURCES: readonly MarketSource[] = ["binance", "binanceus", "bybit", "coinbase"];
 
 /**
  * A candle series and the exchange that served it.
@@ -89,6 +93,18 @@ export async function fetchAddressTransfers(address: string): Promise<WhaleTrans
 }
 
 export async function fetchHolders(symbol: string): Promise<HolderStats | null> {
+  // Asked of BlockScout directly first, because BlockScout rate-limits by IP
+  // and the hosted deploy's Worker shares its egress IP with every other
+  // Cloudflare Worker — the server route answers `429 Too many requests` to a
+  // visitor's first, uncached request. The visitor's own connection has its
+  // own 180-per-minute allowance, so it is the reliable path; the same-origin
+  // route stays as the fallback for networks BlockScout refuses or blocks.
+  try {
+    return await fetchHolderStats(symbol, BLOCKSCOUT_BASE);
+  } catch {
+    // Fall through: the route has its own cache, and may already hold an
+    // answer this tab has not seen.
+  }
   const res = await fetch(`/api/holders?symbol=${encodeURIComponent(symbol)}`);
   if (!res.ok) return null;
   return (await res.json()) as HolderStats;

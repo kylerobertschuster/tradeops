@@ -10,6 +10,8 @@ import {
   shortAddr,
   formatCompactNum,
   formatTokenAmount,
+  chartPriceDecimals,
+  formatChartPrice,
 } from "./format";
 
 afterEach(() => {
@@ -89,6 +91,69 @@ describe("formatPct", () => {
 
   it("omits the sign when signed=false", () => {
     expect(formatPct(2.5, false)).toBe("2.50%");
+  });
+});
+
+/**
+ * The chart axis, where the library's fixed two decimals used to be the whole
+ * story — see the comment on `chartPriceDecimals` for what that looked like on
+ * a memecoin.
+ */
+describe("chartPriceDecimals", () => {
+  it("gives whole numbers when the axis spans thousands", () => {
+    expect(chartPriceDecimals(10000)).toBe(0);
+    expect(chartPriceDecimals(100)).toBe(0);
+  });
+
+  it("adds a digit for every power of ten the axis comes down to", () => {
+    expect(chartPriceDecimals(10)).toBe(1);
+    expect(chartPriceDecimals(1)).toBe(2);
+    expect(chartPriceDecimals(0.1)).toBe(3);
+    expect(chartPriceDecimals(0.5)).toBe(3);
+    expect(chartPriceDecimals(0.01)).toBe(4);
+  });
+
+  it("reaches the sub-cent tokens the fixed format flattened to 0.00", () => {
+    // DOGE's whole daily range, then PEPE's, then a zoom into PEPE.
+    expect(chartPriceDecimals(0.02)).toBe(4);
+    expect(chartPriceDecimals(0.00001)).toBe(7);
+    expect(chartPriceDecimals(0.000001)).toBe(8);
+  });
+
+  it("stops at 8, the library's own limit on tick spacing", () => {
+    expect(chartPriceDecimals(1e-9)).toBe(8);
+    expect(chartPriceDecimals(1e-30)).toBe(8);
+  });
+
+  it("falls back to the old behaviour for a range it cannot use", () => {
+    // Called before any candles are loaded, and after a degenerate fit.
+    for (const range of [0, -1, NaN, Infinity]) {
+      expect(chartPriceDecimals(range)).toBe(2);
+    }
+  });
+});
+
+describe("formatChartPrice", () => {
+  it("groups thousands, which toFixed does not", () => {
+    expect(formatChartPrice(101200, 0)).toBe("101,200");
+    expect(formatChartPrice(1500.5, 2)).toBe("1,500.50");
+  });
+
+  it("applies the digit count to every label, not just the ones that need it", () => {
+    expect(formatChartPrice(0.0842, 4)).toBe("0.0842");
+    expect(formatChartPrice(0.085, 4)).toBe("0.0850");
+    expect(formatChartPrice(0.08425, 5)).toBe("0.08425");
+  });
+
+  it("keeps a memecoin price distinguishable from its neighbour", () => {
+    // The pair that used to render as `0.00` and `0.00` side by side.
+    expect(formatChartPrice(0.00001234, 8)).toBe("0.00001234");
+    expect(formatChartPrice(0.00001235, 8)).toBe("0.00001235");
+  });
+
+  it("degrades to a dash rather than NaN", () => {
+    expect(formatChartPrice(NaN, 2)).toBe("—");
+    expect(formatChartPrice(undefined, 2)).toBe("—");
   });
 });
 

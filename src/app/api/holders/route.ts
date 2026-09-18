@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchHolderStats } from "@/lib/holders";
-import { TRACKED_TOKENS } from "@/lib/onchain";
+import { TRACKED_TOKENS } from "@/lib/tokens";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +17,12 @@ export async function GET(req: NextRequest) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Holder fetch failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+    // A spent rate limit is not a server fault, and the caller should be told
+    // apart from a genuinely broken upstream: 503 says "try again later".
+    const rateLimited = message.includes("rate limit");
+    return NextResponse.json(
+      { error: message },
+      { status: rateLimited ? 503 : 502, headers: { "Retry-After": "60" } },
+    );
   }
 }

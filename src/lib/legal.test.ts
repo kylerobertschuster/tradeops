@@ -3,6 +3,7 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { BROWSER_STORAGE_KEYS, LINK_ONLY_HOSTS, SOURCES } from "./legal";
+import { DEFAULT_SITE_URL, SITE_URL } from "./site";
 
 /**
  * The `/legal` pages make three checkable promises:
@@ -61,6 +62,17 @@ function hostOf(url: string): string {
  */
 const RESERVED_HOST = /(^|\.)(example|invalid|test|localhost|example\.(com|net|org))$/;
 
+/**
+ * Our own deployment is not a third party.
+ *
+ * `site.ts` holds this app's origin for `metadataBase`, which the scan below
+ * would otherwise report as an unlisted upstream and demand a data-source row
+ * for. Both the resolved origin and the compiled-in default are exempt, because
+ * `NEXT_PUBLIC_SITE_URL` can replace one while the other literal stays in the
+ * file. Everything else is still held to the same standard as before.
+ */
+const OWN_HOSTS = new Set([hostOf(SITE_URL), hostOf(DEFAULT_SITE_URL)]);
+
 /** Hosts the sources page accounts for, whether as a fetch target or a link. */
 const ACCOUNTED_FOR = new Set<string>([
   ...LINK_ONLY_HOSTS,
@@ -77,6 +89,7 @@ describe("the sources page accounts for every third-party host", () => {
     for (const file of FILES) {
       for (const host of hostsIn(file.text)) {
         if (RESERVED_HOST.test(host)) continue;
+        if (OWN_HOSTS.has(host)) continue;
         if (ACCOUNTED_FOR.has(host)) continue;
         unaccounted.add(`${host}  (${file.path})`);
       }

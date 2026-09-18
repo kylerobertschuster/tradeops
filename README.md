@@ -2,6 +2,8 @@
 
 **Free & open-source on-chain analytics and paper-trading terminal** — a TradingView-style charting experience with a built-in simulated trading account, available to everyone at no cost.
 
+**Live demo: [trade-ops.vanillalosangeles.workers.dev](https://trade-ops.vanillalosangeles.workers.dev)** — no signup, no API keys, nothing to install.
+
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-000000?logo=next.js&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -16,7 +18,7 @@ Professional-grade market analytics (Chainalysis, TRM Labs, Nansen, TradingView)
 
 - **TradingView-style charting** — powered by TradingView's own open-source [Lightweight Charts](https://github.com/tradingview/lightweight-charts). Candlesticks, volume, and overlay indicators.
 - **Indicators** — Volume, SMA 20/50, EMA 20/50, Bollinger Bands (20, 2), RSI 14, MACD (12, 26, 9), and VWAP, with 7 timeframes (`1m` → `1w`).
-- **Live market data** — multi-provider with automatic failover: Binance → Bybit → Coinbase (candles) and Binance → CoinGecko (tickers). **No API key required.**
+- **Live market data** — multi-provider with automatic failover: **Binance → Binance.US → Bybit → Coinbase** for candles and **Binance → OKX → Crypto.com → Coinbase** for 24h stats. A host that refuses this network (HTTP 403/451, which is what Binance and Bybit answer a datacenter IP) is remembered for ten minutes instead of being retried on every request. **No API key required.**
 - **On-chain analytics** — live whale feed (ERC-20 transfers with an adjustable **≥ $100K / $1M / $5M / $10M** threshold, defaulting to ≥ $1M, across USDC/USDT/DAI/WETH/WBTC/LINK/UNI/AAVE via public RPC, no API key), click-to-inspect any address (inflow/outflow/net + full transfer history), **holder analytics** (top-50 holders per token, concentration share, known-entity names via ENS/verified/tags, total supply, holder count, market cap), and **wallet labeling** (tag addresses as Exchange / Whale / VC / MEV / Exploiter / Contract, persisted locally). One click through to Etherscan for any tx or address.
 - **Watchlist & search** — curated top assets in the sidebar plus fuzzy symbol search.
 - **Paper trading** — start with a virtual **$100,000**, trade at market with realistic 0.1% taker fees, and track live P&L, open positions, and order history. Persisted locally in your browser.
@@ -115,6 +117,21 @@ always-open tabs before any overage.
 - **The rate limiter is per-process**, which on Workers means per-isolate, so
   the effective limit is `isolates × limit`. Durable limiting needs a shared
   store such as Durable Objects or KV.
+- **Two venues refuse a datacenter IP, and the venue table says so per row.**
+  From Cloudflare's egress, `api.binance.com` answers `451` (restricted
+  location) and `data-api.binance.vision` answers `403`; Bybit answers `403`
+  from CloudFront. This is a property of the IP range, not of the app — those
+  candles load normally from a home connection. Binance.US serves the same USDT
+  markets and is reachable, so on the live demo it is the Binance-family row
+  carrying data. The alternative, quietly falling back to another exchange
+  under a "Binance" label, would misreport which order book the prices came
+  from.
+- **BlockScout rate-limits by caller IP, and a Worker shares its IP with every
+  other Worker.** Holder analytics are therefore fetched by *your browser*
+  straight to BlockScout — 180 requests/minute for your own connection — with
+  the same-origin `/api/holders` route kept as a fallback for networks
+  BlockScout refuses. When the Worker does run out of budget it answers `503`
+  with `Retry-After` instead of passing the upstream's error text through.
 - `@opennextjs/cloudflare` imports `esbuild` without declaring it as a
   dependency, so it only resolves when npm happens to hoist it to the root.
   `wrangler` and `@opennextjs/aws` pin different esbuild versions, npm declines
@@ -138,7 +155,12 @@ between requests instead of dying with each cold start.
 | UI        | Tailwind CSS v4                                         |
 | Charts    | TradingView Lightweight Charts                          |
 | State     | Zustand (persisted paper account)                       |
-| Data      | Binance, Bybit, Coinbase, CoinGecko (public, keyless)   |
+| Data      | Binance, Binance.US, Bybit, OKX, Kraken, Coinbase, Crypto.com (market data); BlockScout and public Ethereum RPCs (on-chain) — all keyless |
+
+Every upstream the app contacts — what is fetched from it, from where, and under which
+terms — is listed at [`/legal/sources`](https://trade-ops.vanillalosangeles.workers.dev/legal/sources),
+rendered from `src/lib/legal.ts`. A test fails the build if any hostname appears in `src/`
+that is not on that page, so the list cannot quietly fall out of date.
 
 ## Roadmap
 

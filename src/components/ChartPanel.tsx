@@ -13,6 +13,8 @@ import {
   type IChartApi,
   type ISeriesApi,
   type SeriesType,
+  type PriceFormatterFn,
+  type TickmarksPriceFormatterFn,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/api";
@@ -21,7 +23,7 @@ import { createLiveFeed, type LiveFeed, type LiveStatus } from "@/lib/live";
 import { POLL_MS, startVisiblePolling } from "@/lib/polling";
 import { sma, ema, bollinger, rsi, macd, vwap } from "@/lib/indicators";
 import { findSymbol } from "@/lib/symbols";
-import { formatPrice, formatPct, formatCompact } from "@/lib/format";
+import { formatPrice, formatPct, formatCompact, chartPriceDecimals, formatChartPrice } from "@/lib/format";
 import { VENUES, VENUE_MAP, type VenueId } from "@/lib/venues";
 import { useVenues } from "@/lib/useVenues";
 import VenueStrip from "./VenueStrip";
@@ -111,6 +113,25 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
   const fitKeyRef = useRef<string>("");
   /** Last symbol/interval the compare overlay was fitted for. */
   const fitCompareRef = useRef<string>("");
+  /**
+   * The candles the visible-range listener reads.
+   *
+   * The price-axis precision has to be recomputed on every zoom, and a zoom is
+   * not a React state change — so the listener is subscribed once and reads the
+   * data through a ref rather than through a dependency it would have to be
+   * torn down and rebuilt for.
+   */
+  const candlesRef = useRef<Candle[]>([]);
+  /** Decimals currently applied to the axis; null until the first data lands. */
+  const axisDecimalsRef = useRef<number | null>(null);
+  /**
+   * The axis-precision pass, so the data effect can ask for one.
+   *
+   * It is defined inside the chart-creation effect (it closes over the series),
+   * and the data effect has to be able to reach it — there is no zoom event to
+   * hang a symbol change off.
+   */
+  const applyAxisPrecisionRef = useRef<(() => void) | null>(null);
 
   const [candles, setCandles] = useState<Candle[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -243,6 +264,18 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
         textColor: "#787b86",
         fontSize: 11,
         fontFamily: "'Geist', system-ui, sans-serif",
+        /**
+         * The library draws its own TradingView mark in the corner of every
+         * chart, and that mark is how it satisfies the licence's "link to
+         * tradingview.com" condition. Switching it off does not switch the
+         * condition off, so the notice and its link moved to
+         * `CHART_LIBRARY` in `src/lib/legal.ts` and are rendered on
+         * /legal/sources — one click from here, via "Sources & terms".
+         *
+         * Removing the logo without that would leave the attribution in the
+         * build but out of the product.
+         */
+        attributionLogo: false,
       },
       grid: {
         vertLines: { color: "#1e222d" },
@@ -271,6 +304,73 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
     chartRef.current = chart;
     seriesRef.current = { candles: candleSeries };
 
+    /**
+     * Keep the price axis's digits matched to what is actually on screen.
+     *
+     * The library spaces its ticks from the visible range but takes the digits
+     * from the series' `priceFormat`, which defaults to a flat two decimals —
+     * see `chartPriceDecimals`. `applyOptions` on a priceFormat is documented as
+     * the expensive kind of update, so this only fires when the digit count
+     * actually changes, which is once per power-of-ten zoom, not per frame.
+     *
+     * `formatter` and `tickmarksFormatter` are deliberately different: the
+     * crosshair label and the last-price tag use the exact formatted price that
+     * the legend above the chart uses, while the axis ticks are rounded to the
+     * zoom level and grouped. A trader reading a level off the crosshair gets
+     * the same number they just read in the legend; a trader scanning the axis
+     * for shape gets `101,200` instead of `101200.00`.
+     *
+     * `minMove` is the part that is easy to miss: it is not just a display
+     * hint, it is the floor on how closely the library may space its ticks. The
+     * default 0.01 is why DOGE could not be labelled finer than a whole cent.
+     */
+    const applyAxisPrecision = () => {
+      const rows = candlesRef.current;
+      if (rows.length === 0) return;
+
+      // Only what is on screen decides the digits — zoomed out on BTC the axis
+      // should not carry the cents it needs when zoomed in. The window is read
+      // in time rather than in logical indices: every series on the time scale
+      // shares one index space, so an overlay carrying even a single bar the
+      // candles do not have would shift the window and silently pick the wrong
+      // precision.
+      const visible = chart.timeScale().getVisibleRange();
+      const from = typeof visible?.from === "number" ? visible.from : -Infinity;
+      const to = typeof visible?.to === "number" ? visible.to : Infinity;
+      let high = -Infinity;
+      let low = Infinity;
+      for (const row of rows) {
+        if (row.time < from || row.time > to) continue;
+        if (row.high > high) high = row.high;
+        if (row.low < low) low = row.low;
+      }
+      // Scrolled entirely into empty space: no window, no opinion.
+      const decimals = chartPriceDecimals(high - low);
+      if (decimals === axisDecimalsRef.current) return;
+      // Recorded before the call, so a range change triggered by this update
+      // re-enters, computes the same digits and returns instead of recursing.
+      axisDecimalsRef.current = decimals;
+
+      // Typed against the library's own function shapes: `applyOptions` takes a
+      // `DeepPartial`, which flattens the union discriminant on `priceFormat`
+      // and would otherwise leave these parameters implicitly `any`.
+      const formatOne: PriceFormatterFn = (price) => formatPrice(price);
+      const formatTickmarks: TickmarksPriceFormatterFn = (prices) =>
+        prices.map((price) => formatChartPrice(price, decimals));
+
+      candleSeries.applyOptions({
+        priceFormat: {
+          type: "custom",
+          minMove: 10 ** -decimals,
+          formatter: formatOne,
+          tickmarksFormatter: formatTickmarks,
+        },
+      });
+    };
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(applyAxisPrecision);
+    applyAxisPrecisionRef.current = applyAxisPrecision;
+
     const onResize = () => {
       const el = containerRef.current;
       if (!el) return;
@@ -291,11 +391,15 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       chart.remove();
       chartRef.current = null;
       seriesRef.current = {};
+      candlesRef.current = [];
+      axisDecimalsRef.current = null;
+      applyAxisPrecisionRef.current = null;
     };
   }, []);
 
   // Set candle data
   useEffect(() => {
+    candlesRef.current = candles;
     const series = seriesRef.current["candles"];
     if (!series || candles.length === 0) return;
     series.setData(
@@ -312,6 +416,11 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
       fitKeyRef.current = key;
       chartRef.current?.timeScale().fitContent();
     }
+    // `fitContent` above covers a zoom change, but a new symbol at a different
+    // price magnitude leaves the visible range exactly where it was — the same
+    // window of bars, a completely different set of prices — and no range event
+    // fires for that. So the digits are recomputed here as well as on zoom.
+    applyAxisPrecisionRef.current?.();
   }, [candles, symbol, interval]);
 
   /**
@@ -717,8 +826,8 @@ export default function ChartPanel({ symbol, interval, ticker }: Props) {
 
       {/* OHLC stats. Hidden in compare mode: these describe the selected
           venue's latest candle, which is not on screen, and an unlabelled
-          Open/High/Low/Close above an overlay of six venues reads as though it
-          described all of them. The strip's per-venue columns replace it. */}
+          Open/High/Low/Close above an overlay of several venues reads as though
+          it described all of them. The strip's per-venue columns replace it. */}
       {!compare && (
         <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-0.5 border-b border-tv-border px-4 py-1.5 text-[11px] tabular-nums">
           <Stat label="Open" value={last ? formatPrice(last.open) : "—"} />

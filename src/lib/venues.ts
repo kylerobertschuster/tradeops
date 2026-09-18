@@ -27,7 +27,14 @@ import { toSeconds } from "./time";
  *     served as a different interval.
  */
 
-export type VenueId = "binance" | "bybit" | "okx" | "coinbase" | "kraken" | "cryptocom";
+export type VenueId =
+  | "binance"
+  | "binanceus"
+  | "bybit"
+  | "okx"
+  | "coinbase"
+  | "kraken"
+  | "cryptocom";
 
 export type VenueMeta = {
   id: VenueId;
@@ -65,6 +72,13 @@ export type VenueMeta = {
 
 export const VENUES: readonly VenueMeta[] = [
   { id: "binance", label: "Binance", short: "BIN", color: "#f0b90b", quote: "USDT", barCap: 1000, streaming: true },
+  // Binance.US is a separate exchange with its own order book, not a mirror of
+  // Binance, so it gets its own row rather than quietly serving Binance prices
+  // under Binance's name. The whole point of this table is comparing venues
+  // against each other; two rows of the same company would report a spread
+  // nobody can trade. A paler yellow keeps the family resemblance without
+  // being mistakable for the row above it.
+  { id: "binanceus", label: "Binance.US", short: "B.US", color: "#e0c341", quote: "USDT", barCap: 1000, streaming: false },
   { id: "coinbase", label: "Coinbase", short: "CB", color: "#3b6cff", quote: "USD", barCap: 350, streaming: false },
   { id: "kraken", label: "Kraken", short: "KRK", color: "#a06cff", quote: "USD", barCap: 720, streaming: false },
   { id: "okx", label: "OKX", short: "OKX", color: "#d8dee9", quote: "USDT", barCap: 300, streaming: false },
@@ -160,6 +174,10 @@ export type VenuesResponse = {
  */
 const VENUE_IV: Record<VenueId, Record<Interval, string | null>> = {
   binance: { "1s": "1s", "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w" },
+  // Same API as Binance except that it has no sub-minute candles: verified
+  // live, `interval=1s` answers `400 Bad Request`. Assuming otherwise would
+  // hand the chart an empty series and call it a fault.
+  binanceus: { "1s": null, "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w" },
   bybit: { "1s": null, "1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240", "1d": "D", "1w": "W" },
   okx: { "1s": null, "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D", "1w": "1W" },
   // Coinbase's `granularity` is a number of seconds, not a code.
@@ -205,6 +223,7 @@ export function venueSymbol(id: VenueId, symbol: string): string | null {
   if (base.length === 0) return null;
   switch (id) {
     case "binance":
+    case "binanceus":
     case "bybit":
       return `${base}USDT`;
     case "okx":
@@ -223,7 +242,17 @@ export function venueSymbol(id: VenueId, symbol: string): string | null {
 // ---------------------------------------------------------------------------
 
 const HOSTS: Record<VenueId, string> = {
+  // Binance's public market-data mirror. Reachable from an ordinary network,
+  // but not from Cloudflare: its egress IPs get `403 Forbidden` from nginx,
+  // while `api.binance.com` gets `451 Service unavailable from a restricted
+  // location` (both verified from a Worker). On the hosted demo this row
+  // therefore reports `blocked`, which is the truth rather than a bug.
   binance: "https://data-api.binance.vision",
+  // The US-regulated venue: same API, same response shapes, different order
+  // book — and the only Binance-family endpoint that answers Cloudflare's
+  // edge with a 200. It carries a smaller pair list (verified: no PYTH), which
+  // is exactly what the `unlisted` fault is for.
+  binanceus: "https://api.binance.us",
   bybit: "https://api.bybit.com",
   okx: "https://www.okx.com",
   coinbase: "https://api.exchange.coinbase.com",
@@ -467,7 +496,8 @@ function candleUrl(id: VenueId, sourceSymbol: string, interval: Interval, bars: 
   const code = venueIntervalCode(id, interval) ?? "";
   switch (id) {
     case "binance":
-      return `${HOSTS.binance}/api/v3/klines?symbol=${sourceSymbol}&interval=${code}&limit=${bars}`;
+    case "binanceus":
+      return `${HOSTS[id]}/api/v3/klines?symbol=${sourceSymbol}&interval=${code}&limit=${bars}`;
     case "bybit":
       return `${HOSTS.bybit}/v5/market/kline?category=spot&symbol=${sourceSymbol}&interval=${code}&limit=${bars}`;
     case "okx":
@@ -568,7 +598,8 @@ function num(v: unknown): number | null {
 function tickerUrl(id: VenueId, sourceSymbol: string): string {
   switch (id) {
     case "binance":
-      return `${HOSTS.binance}/api/v3/ticker/24hr?symbol=${sourceSymbol}`;
+    case "binanceus":
+      return `${HOSTS[id]}/api/v3/ticker/24hr?symbol=${sourceSymbol}`;
     case "bybit":
       return `${HOSTS.bybit}/v5/market/tickers?category=spot&symbol=${sourceSymbol}`;
     case "okx":
@@ -620,7 +651,10 @@ export function venueTickerFromBody(
   const b = (body ?? {}) as Record<string, unknown>;
 
   switch (id) {
-    case "binance": {
+    // Binance.US publishes the same `/ticker/24hr` shape, so it shares the
+    // parse rather than repeating five identical field reads.
+    case "binance":
+    case "binanceus": {
       if (num(b.lastPrice) == null) return { ...blank, fault: "unlisted" };
       return {
         ...blank,

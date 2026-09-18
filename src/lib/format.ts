@@ -36,6 +36,51 @@ export function formatPct(n: number | undefined | null, signed = true): string {
   return `${sign}${n.toFixed(2)}%`;
 }
 
+/**
+ * Decimals for the chart's price axis, from the range that axis is showing.
+ *
+ * The charting library's default for a series is a fixed two decimals *and* a
+ * one-cent floor on how closely ticks may be spaced (`precision: 2`,
+ * `minMove: 0.01`, see `PriceTickSpanCalculator` in its source). That is wrong
+ * at both ends of this app's symbol list: PEPE renders every tick, the crosshair
+ * label and the last-price tag as `0.00`, and DOGE — under a dollar — cannot be
+ * labelled finer than a whole cent, so a day of price action lands on two or
+ * three ticks with nothing readable between them.
+ *
+ * The library already chooses tick *spacing* from the visible range; the digits
+ * are the part that was fixed. So the fix is to feed both from the same place:
+ * two significant digits for every power of ten on screen, which holds roughly
+ * four significant figures at every zoom. BTC zoomed out reads `101,200`,
+ * zoomed into a two-dollar window reads `101,234.25`, and PEPE reads
+ * `0.00001234` instead of a column of zeros.
+ *
+ * The cap at 8 is the library's own limit on `minMove` before float error
+ * creeps into tick placement, and the floor at 0 keeps a zoomed-out axis from
+ * printing `.00` on the end of every price.
+ */
+export function chartPriceDecimals(range: number): number {
+  if (!isFinite(range) || range <= 0) return 2;
+  return Math.min(8, Math.max(0, 2 - Math.floor(Math.log10(range))));
+}
+
+/**
+ * One price on the chart's axis: grouped, with exactly the digits the zoom
+ * earned.
+ *
+ * Grouping is the reason this is not just `toFixed` — `101,200` is read at a
+ * glance where `101200` has to be counted. The digits are passed in rather than
+ * derived so that every label on an axis shares them; a column where one tick
+ * says `0.084` and the next says `0.0842` reads as a mistake even when both are
+ * right.
+ */
+export function formatChartPrice(n: number | undefined | null, decimals: number): string {
+  if (n == null || !isFinite(n)) return "—";
+  return n.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
 export function formatQty(n: number | undefined | null): string {
   if (n == null || !isFinite(n)) return "—";
   if (n === 0) return "0";

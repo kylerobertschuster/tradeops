@@ -1,5 +1,5 @@
 import type { Candle, Interval, Ticker } from "./types";
-import { fetchWithTimeout, budgetMs, UPSTREAM_TIMEOUT_MS } from "./http";
+import { fetchWithTimeout, budgetMs, UPSTREAM_TIMEOUT_MS, UpstreamStatusError } from "./http";
 import { toSeconds } from "./time";
 import { venueSymbol, venueTickerFromBody } from "./venues";
 
@@ -79,6 +79,7 @@ const cache = new Map<string, { t: number; data: unknown }>();
  */
 export function clearMarketCache(): void {
   cache.clear();
+  refusedHosts.clear();
 }
 
 /** Overall budget for a full provider-failover chain (see `budgetMs`). */
@@ -92,7 +93,7 @@ async function cachedJson(url: string, ttlMs = 5000, timeoutMs = UPSTREAM_TIMEOU
     { headers: { accept: "application/json" }, cache: "no-store" },
     timeoutMs,
   );
-  if (!res.ok) throw new Error(`HTTP ${res.status} from ${new URL(url).host}`);
+  if (!res.ok) throw new UpstreamStatusError(url, res.status);
   const data = await res.json();
   cache.set(url, { t: Date.now(), data });
   if (cache.size > 500) {
@@ -114,35 +115,95 @@ async function cachedJson(url: string, ttlMs = 5000, timeoutMs = UPSTREAM_TIMEOU
  */
 const BINANCE_HOSTS = ["https://data-api.binance.vision", "https://api.binance.com"];
 
+/**
+ * Hosts that answered with a hard refusal, and when we learned it.
+ *
+ * A 403 or a 451 is a fact about the network this process is running on, not
+ * about the request, so the answer will be the same next time. Without this,
+ * every cache miss on the hosted demo paid two dead round trips (~500ms on a
+ * Worker, a tenth of the whole request budget) before reaching a host that
+ * answers — on every symbol and interval. Failed hosts are forgotten after
+ * the TTL so a self-hoster on another network, or a host that lifts its
+ * block, is not punished for it forever.
+ */
+const refusedHosts = new Map<string, number>();
+const REFUSED_HOST_TTL_MS = 10 * 60_000;
+
+function refusedRecently(host: string): boolean {
+  const at = refusedHosts.get(host);
+  if (at === undefined) return false;
+  if (Date.now() - at < REFUSED_HOST_TTL_MS) return true;
+  refusedHosts.delete(host);
+  return false;
+}
+
 /** Fetch `path` from the first Binance host that answers. */
 async function binanceJson(path: string, ttlMs: number, timeoutMs: number): Promise<unknown> {
   let lastError: unknown = new Error("no Binance host attempted");
+  let attempted = false;
   for (const host of BINANCE_HOSTS) {
+    if (refusedRecently(host)) continue;
+    attempted = true;
     try {
-      return await cachedJson(`${host}${path}`, ttlMs, timeoutMs);
+      const data = await cachedJson(`${host}${path}`, ttlMs, timeoutMs);
+      refusedHosts.delete(host);
+      return data;
     } catch (err) {
+      if (err instanceof UpstreamStatusError && err.isHardRefusal) {
+        refusedHosts.set(host, Date.now());
+      }
       lastError = err;
     }
   }
-  throw lastError;
+  // Every host is known-bad, so answer with the refusal itself rather than
+  // with the bookkeeping error that would otherwise escape the loop.
+  throw attempted ? lastError : new Error(`HTTP 403 from ${new URL(BINANCE_HOSTS[0]).host}`);
+}
+
+/** `/api/v3/klines` rows (identical on Binance and Binance.US) -> candles. */
+function parseBinanceKlines(data: unknown): Candle[] | null {
+  if (!Array.isArray(data) || data.length === 0) return null;
+  return data.map((k) => {
+    const r = k as number[];
+    return {
+      time: toSeconds(r[0]),
+      open: +r[1],
+      high: +r[2],
+      low: +r[3],
+      close: +r[4],
+      volume: +r[5],
+    };
+  });
 }
 
 async function binanceKlines(symbol: string, interval: Interval, limit: number, timeoutMs: number): Promise<Candle[] | null> {
   try {
     const path = `/api/v3/klines?symbol=${symbol}&interval=${BINANCE_IV[interval]}&limit=${limit}`;
-    const data = (await binanceJson(path, 5000, timeoutMs)) as unknown[];
-    if (!Array.isArray(data) || data.length === 0) return null;
-    return data.map((k) => {
-      const r = k as number[];
-      return {
-        time: toSeconds(r[0]),
-        open: +r[1],
-        high: +r[2],
-        low: +r[3],
-        close: +r[4],
-        volume: +r[5],
-      };
-    });
+    return parseBinanceKlines(await binanceJson(path, 5000, timeoutMs));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Binance.US, from its own host.
+ *
+ * A separate provider rather than a third entry in `BINANCE_HOSTS`, because
+ * the chart prints the name of the venue that served it: Binance.US prices
+ * labelled "Binance" would be a false statement about which order book
+ * produced the numbers, and knowing the difference is the point of this app.
+ * It is here because Cloudflare's egress is refused by both Binance hosts
+ * while this one answers normally — without it the hosted demo silently
+ * serves USD-quoted Coinbase candles to a USDT-quoted symbol list.
+ */
+async function binanceusKlines(symbol: string, interval: Interval, limit: number, timeoutMs: number): Promise<Candle[] | null> {
+  // Binance.US publishes no sub-minute candles (verified: `400 Bad Request`
+  // for interval=1s), so a 1s chart stays with Binance proper rather than
+  // being sent a request that cannot succeed.
+  if (interval === "1s") return null;
+  try {
+    const path = `/api/v3/klines?symbol=${symbol}&interval=${BINANCE_IV[interval]}&limit=${limit}`;
+    return parseBinanceKlines(await cachedJson(`https://api.binance.us${path}`, 5000, timeoutMs));
   } catch {
     return null;
   }
@@ -201,7 +262,7 @@ async function coinbaseKlines(symbol: string, interval: Interval, limit: number,
  * hides the one thing this app exists to show, so the answer travels with the
  * response instead of being inferred from the symbol.
  */
-export type MarketSource = "binance" | "bybit" | "coinbase";
+export type MarketSource = "binance" | "binanceus" | "bybit" | "coinbase";
 
 /** A series together with the upstream it came from. */
 export type SourcedCandles = {
@@ -213,9 +274,12 @@ export type SourcedCandles = {
  * Candles from the first provider that will answer, with the provider's name.
  *
  * Binance is first because it is the deepest and most reliable of the three;
- * Bybit covers regions where Binance refuses with HTTP 451; Coinbase is the last
- * resort and quotes USD rather than USDT, which is why its prices run a few
- * basis points off the other two.
+ * Binance.US follows because it is the only Binance-family venue that answers
+ * Cloudflare's edge and it quotes USDT, so a hosted deploy still draws a USDT
+ * chart instead of falling through to Coinbase's USD one; Bybit covers regions
+ * where Binance refuses with HTTP 451; Coinbase is the last resort and quotes
+ * USD rather than USDT, which is why its prices run a few basis points off the
+ * others.
  */
 export async function fetchKlinesWithSource(
   symbol: string,
@@ -224,6 +288,7 @@ export async function fetchKlinesWithSource(
 ): Promise<SourcedCandles> {
   const providers: ReadonlyArray<[MarketSource, typeof binanceKlines]> = [
     ["binance", binanceKlines],
+    ["binanceus", binanceusKlines],
     ["bybit", bybitKlines],
     ["coinbase", coinbaseKlines],
   ];

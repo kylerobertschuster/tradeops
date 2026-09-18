@@ -224,6 +224,14 @@ const COINBASE_CANDLES = [[1_700_000_000, 90, 110, 100, 105, 7.5]];
 function stubKlineProviders(available: ReadonlySet<string>) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
+    // Checked before the generic Binance branch: `api.binance.us` contains the
+    // substring "binance", and folding the two together would let a test pass
+    // with either host answering. This comment exists because that happened.
+    if (url.includes("binance.us")) {
+      return available.has("binanceus")
+        ? Response.json(BINANCE_KLINES)
+        : new Response("403", { status: 403 });
+    }
     // Matches both `data-api.binance.vision` and the `api.binance.com` mirror,
     // which is what the host failover tries second.
     if (url.includes("binance")) {
@@ -274,5 +282,82 @@ describe("fetchKlinesWithSource reports which exchange drew the chart", () => {
   it("invents no source when every provider refuses", async () => {
     vi.stubGlobal("fetch", stubKlineProviders(new Set()));
     await expect(fetchKlinesWithSource("BTCUSDT", "1d", 100)).rejects.toThrow(/No market data/);
+  });
+});
+
+describe("refusals that describe the network rather than the request", () => {
+  /** Record the host of every request, and answer only from `api.binance.us`. */
+  function recordingStub(handler: (host: string) => Response) {
+    const hosts: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const host = new URL(String(input)).host;
+        hosts.push(host);
+        return handler(host);
+      }),
+    );
+    return hosts;
+  }
+
+  it("names Binance.US when that is who served the candles", async () => {
+    // The name travels with the data; the two venues are different order books,
+    // so a Binance.US chart labelled "Binance" would be a false claim about
+    // which market produced the prices.
+    vi.stubGlobal("fetch", stubKlineProviders(new Set(["binanceus"])));
+    const { source, candles } = await fetchKlinesWithSource("BTCUSDT", "1d", 100);
+    expect(source).toBe("binanceus");
+    expect(candles).toEqual([
+      { time: 1_700_000_000, open: 100, high: 110, low: 90, close: 105, volume: 12.5 },
+    ]);
+  });
+
+  it("stops asking a host that refused, because the refusal is about this network", async () => {
+    // Measured on the hosted demo: `data-api.binance.vision` answers 403 to
+    // Cloudflare's egress and `api.binance.com` answers 451, so walking the
+    // list in order spent ~500ms of every cache miss — a tenth of a Worker's
+    // budget — before reaching a host that answers.
+    const hosts = recordingStub((host) =>
+      host === "api.binance.us"
+        ? Response.json(BINANCE_KLINES)
+        : new Response("blocked", { status: host === "api.binance.com" ? 451 : 403 }),
+    );
+
+    await fetchKlinesWithSource("BTCUSDT", "1d", 100);
+    expect(hosts).toEqual(["data-api.binance.vision", "api.binance.com", "api.binance.us"]);
+
+    hosts.length = 0;
+    // A different symbol, so the response cache cannot stand in for the stub.
+    await fetchKlinesWithSource("ETHUSDT", "1d", 100);
+    expect(hosts).toEqual(["api.binance.us"]);
+  });
+
+  it("keeps asking a host whose failure might be temporary", async () => {
+    // A 500 could be one bad minute rather than a property of this network, so
+    // blacklisting it would turn a transient blip into a ten-minute outage.
+    const hosts = recordingStub((host) =>
+      host === "data-api.binance.vision"
+        ? new Response("server error", { status: 500 })
+        : Response.json(BINANCE_KLINES),
+    );
+
+    await fetchKlinesWithSource("BTCUSDT", "1d", 100);
+    hosts.length = 0;
+    await fetchKlinesWithSource("ETHUSDT", "1d", 100);
+    expect(hosts).toEqual(["data-api.binance.vision", "api.binance.com"]);
+  });
+
+  it("does not ask Binance.US for the one interval it does not publish", async () => {
+    // Verified live: `interval=1s` answers 400 on api.binance.us, so sending it
+    // would spend a subrequest to learn nothing. A 1s chart belongs to Binance
+    // proper, and fails over past Binance.US rather than through it.
+    const hosts = recordingStub((host) =>
+      host === "data-api.binance.vision" || host === "api.binance.com"
+        ? new Response("restricted", { status: 451 })
+        : new Response("not found", { status: 404 }),
+    );
+
+    await expect(fetchKlinesWithSource("BTCUSDT", "1s", 100)).rejects.toThrow(/No market data/);
+    expect(hosts).not.toContain("api.binance.us");
   });
 });

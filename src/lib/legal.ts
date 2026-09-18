@@ -97,6 +97,21 @@ export const SOURCES: readonly DataSource[] = [
     direct: true,
   },
   {
+    name: "Binance.US",
+    // A separate entry from Binance because it is a separate order book, not a
+    // mirror: the chart names whichever one served it and the venue table
+    // gives each its own row, so a single merged listing would misdescribe
+    // both. It is also the only Binance-family endpoint the hosted Cloudflare
+    // Worker can reach — Binance answers its egress with 403 and 451 — so on
+    // the live demo this is the Binance row that has data.
+    purpose: "Candlestick history and 24h stats, from the US-regulated venue.",
+    hosts: ["api.binance.us"],
+    site: "https://www.binance.us/",
+    // Verified reachable (200) for an automated request, unlike Binance's and
+    // Coinbase's, which answer a bot challenge.
+    terms: "https://www.binance.us/terms-of-use",
+  },
+  {
     name: "Bybit",
     purpose: "Candlestick history and 24h stats, where the region allows it.",
     hosts: ["api.bybit.com"],
@@ -188,9 +203,39 @@ export const RPC_SOURCE_NAMES: readonly string[] = [
 ];
 
 /**
+ * The charting library, and the attribution its licence asks for in return.
+ *
+ * Lightweight Charts is Apache-2.0 with one condition on top of it: the NOTICE
+ * wording below is reproduced in the code, and a link to tradingview.com has to
+ * reach the people using the page the charts are on. The library draws that
+ * link itself as a mark in the corner of every chart, which is the option the
+ * project turns off — a logo sitting on top of the candles is not attribution a
+ * reader can act on, and it is the one place on the terminal that would claim a
+ * relationship the rest of the app is careful not to claim.
+ *
+ * So the notice is served here instead, in full, one click from the chart
+ * through "Sources & terms". Turning the mark off without this would move the
+ * attribution out of the product while leaving it in the repository, which is
+ * the version of the change that would actually be wrong.
+ *
+ * TradingView is not in `SOURCES`: nothing is fetched from them. This is a
+ * library licence, not a data feed, and listing them as an upstream would make
+ * the sources page less true rather than more.
+ */
+export const CHART_LIBRARY = {
+  name: "TradingView Lightweight Charts™",
+  /** The NOTICE file from the library, verbatim but for the copyright glyph. */
+  notice: "Copyright (c) 2025 TradingView, Inc.",
+  site: "https://www.tradingview.com/",
+  source: "https://github.com/tradingview/lightweight-charts",
+  licence: "Apache-2.0",
+} as const;
+
+/**
  * Hosts that are allowed to appear in `src/` without being a data source.
  *
- * The project's own site and store links, which fetch nothing. Anything else
- * has to be listed in `SOURCES` and therefore described on the sources page.
+ * The project's own site and store links, and the charting library's — all of
+ * them links a reader can follow, none of them fetched. Anything else has to be
+ * listed in `SOURCES` and therefore described on the sources page.
  */
-export const LINK_ONLY_HOSTS: readonly string[] = ["github.com"];
+export const LINK_ONLY_HOSTS: readonly string[] = ["github.com", "www.tradingview.com"];
