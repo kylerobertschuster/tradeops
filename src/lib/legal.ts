@@ -48,9 +48,11 @@ export const GOVERNING_LAW: string | null = null;
  * the links that resolved.
  *
  * Empty does not mean hidden. The support section of the legal index still
- * renders, because the top bar's Support link has to land on a heading, and it
- * says this deployment accepts no donations — the same sentence section 8 of the
- * terms uses in the same state.
+ * renders, so a reader looking for a way to give finds the answer rather than a
+ * gap: it says this deployment accepts no donations, the same sentence section 8
+ * of the terms uses in the same state. The top bar's Support link is the one
+ * piece that does disappear, because a link carried on every screen has to lead
+ * somewhere worth going.
  *
  * Two rules apply to anything added here, and `legal.test.ts` enforces both:
  * the address is https, and its host is in `LINK_ONLY_HOSTS` below, because a

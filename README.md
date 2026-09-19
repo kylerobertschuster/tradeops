@@ -211,8 +211,10 @@ only once it has been fetched and has answered, so a funding link cannot be a de
 rule that leaves `GOVERNING_LAW` unset rather than inventing a jurisdiction. Run
 `npm run check:support`: it probes every configured link, prints a paste-ready array of the ones
 that resolved, and also reports what the intended addresses for this deployment are doing. With the
-list empty nothing is hidden: the Support link in the top bar lands on a real heading, and that
-heading says this deployment accepts no donations. Section 8 of the terms says the same thing.
+list empty the heading still renders — a reader looking for a way to give finds the answer rather
+than a gap — and it says this deployment accepts no donations; section 8 of the terms says the same
+thing. The top bar's Support link is the one piece that disappears in that state, because a link
+carried on every screen has to lead somewhere worth going.
 
 ## Disclaimer
 

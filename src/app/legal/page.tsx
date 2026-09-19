@@ -67,9 +67,9 @@ export default function LegalIndex() {
         ))}
       </ul>
       {/*
-        Rendered whether or not there are links to show, because the top bar's
-        Support link points at this heading: an empty list must not turn that
-        into a link to nowhere.
+        The heading renders in both states, so a reader looking for a way to give
+        finds the answer instead of a gap — and so the `#support` target exists
+        for the top bar's Support link whenever there is something to link to.
       */}
       <h2 id="support">Support</h2>
       <p>
