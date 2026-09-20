@@ -9,7 +9,7 @@ Free, open-source on-chain analytics + paper-trading terminal. Rebuild the
 professional experience (Chainalysis / Nansen / TradingView) without the
 paywalls. No API keys, no accounts, no bullshit.
 
-## Current State (v0.6.x — launch-ready)
+## Current State (v0.8.x — launch-ready)
 
 Done:
 
@@ -37,6 +37,32 @@ Done:
   requests/day, **under** the 13,680 single-chart ceiling. `tradeops-layout-v1`
   joined `BROWSER_STORAGE_KEYS`, and the privacy page's hard-coded "two things"
   became a sentence with no count in it — the list below it is the list.
+- **Market view (2026-09-18).** Every market on one chart, which is the one
+  question a multi-chart layout cannot answer: two charts have two price axes.
+  `src/lib/overview.ts` rebases each series to percent change from the window's
+  first close — the first point is exactly 0 by construction, and the vertical
+  axis stops being price and becomes "how far from where this window started".
+  The legend is ordered best-first and doubles as a heat strip: a swatch for
+  identity, a bar whose side and length is the move on one shared scale, and the
+  number printed beside it, so a reader who cannot separate the colours still
+  gets every figure. Above it sits the market's breadth — how many up, how many
+  down, the median, the leader, the laggard. Windows are 1D (96 × 15m), 1W
+  (168 × 1h) and 1M (30 × 1d); the watchlist is the default set and "All
+  markets" draws all 55 pairs. Candle history is read by the browser straight
+  from `data-api.binance.vision` (`fetchOverviewCandles` in `api.ts`), because
+  one page view of twenty-four markets would otherwise be twenty-four
+  subrequests on the tightest limit there is — so the view spends **zero Worker
+  requests**. `OVERVIEW_MS` (300s) lives in `polling.ts` and is deliberately
+  *not* in `POLL_MS`; `polling.test.ts` asserts that exclusion, so the cost of
+  one chart cannot quietly absorb a request nothing ever sends. `view:
+  "charts" | "market"` joined the persisted layout state under the same
+  `tradeops-layout-v1` key, sanitized like every other stored field (unknown or
+  missing opens on charts, and a stored layout that is intact survives
+  round-trip — including its view). A market whose read fails keeps the previous
+  series and is reported `stale`; one that has never answered is `missing`, is
+  excluded from the counts, and is named in the footer rather than drawn as
+  flat. The privacy page's "the one connection your browser makes directly"
+  became two, because that is what is true now.
 - **Hosted-deploy truth fixes (2026-09-18, `7568187`).** Binance.US joins as a
   venue row *and* a candle provider, because Cloudflare's egress gets 403/451 from
   Binance and 403 from Bybit; hard refusals are remembered per host for ten
@@ -206,10 +232,26 @@ Launch readiness first, then features:
   1. Multi-chart layouts (2×2 panes) + unlimited indicators per chart. **Done
      2026-09-18** — the panes landed; unlimited indicators were already there
      (all nine toggles run at once).
-  2. Bar replay + backtest against the existing paper engine.
-  3. Alerts — client-side first, then Workers Cron + KV so they fire with no
+  2. Market view — every market on one chart, rebased to percent change. **Done
+     2026-09-18** (shipped with the layout work, since both are answers to "how
+     much market do you want on screen"). Still to come on top of it, in the
+     order the operator asked for them: a **colour-by-strength** mode that
+     recolours the lines by their move against the median (identity moves to
+     hover and legend order), then a **markets grid** — squares sorted by
+     change, sized by volume — which is the real heatmap and needs no chart
+     library.
+  3. "Projected outcomes", in the only form that does not invent a number: base
+     rates counted from the candles ("closed ≥ +2% within 24h on 9 of 30
+     days"), scenario arithmetic ("+6.4% to the window high, −3.1% to the
+     low"), and the position maths the paper engine already has every input for
+     — distance to liquidation, break-even after fees. **No forecasts**: a
+     prediction is not data, and this app prints nothing it cannot source. The
+     path to real ones is to record what the app said and score it later, which
+     needs the backtest first.
+  4. Bar replay + backtest against the existing paper engine.
+  5. Alerts — client-side first, then Workers Cron + KV so they fire with no
      tab open, and that is the single upgrade TradingView charges $59.95/mo for.
-  4. History depth: 500 → 5,000 bars via Binance pagination.
+  6. History depth: 500 → 5,000 bars via Binance pagination.
 - `FEATURES.md`: the honest "the $59.95/month feature list, free" page, linked
   from the README. TradingView's own pricing page is the source for their limits
   (Basic: 1 chart/tab, 2 indicators, 5,000 bars, 3 alerts expiring ~30 days,

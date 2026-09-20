@@ -16,6 +16,18 @@ import { INTERVALS, type Interval } from "./types";
 export const PANE_COUNTS = [1, 2, 4] as const;
 export type PaneCount = (typeof PANE_COUNTS)[number];
 
+/**
+ * What the main area is showing: the charts, or every market at once.
+ *
+ * A view rather than another pane count, because it answers a different
+ * question rather than more of the same one. The layout asks how much of *this*
+ * market to show; the market view asks how the markets moved against each
+ * other, which needs one axis and therefore one chart. Switching between them
+ * leaves the layout untouched, so coming back returns to the charts you had.
+ */
+export const VIEWS = ["charts", "market"] as const;
+export type View = (typeof VIEWS)[number];
+
 /** How many charts the state holds, whether or not they are on screen. */
 export const SLOT_COUNT = 4;
 
@@ -75,7 +87,12 @@ export function clampFocus(focus: number, panes: PaneCount): number {
  * every field is checked, and anything unrecognised falls back to the default
  * for that field alone rather than propagating into a render.
  */
-export function sanitizeLayout(saved: unknown): { panes: PaneCount; focus: number; slots: Slot[] } {
+export function sanitizeLayout(saved: unknown): {
+  view: View;
+  panes: PaneCount;
+  focus: number;
+  slots: Slot[];
+} {
   const raw = (typeof saved === "object" && saved !== null ? saved : {}) as Record<string, unknown>;
   const slots = defaultSlots();
 
@@ -96,6 +113,10 @@ export function sanitizeLayout(saved: unknown): { panes: PaneCount; focus: numbe
     ? (raw.panes as PaneCount)
     : PANE_COUNTS[0];
   const focus = clampFocus(typeof raw.focus === "number" ? raw.focus : 0, panes);
+  // Charts, not market: a stored layout predating the market view, or one
+  // written by a build that knew a third view, opens on the thing this app is
+  // for. A missing value is reported as missing, never guessed at.
+  const view = VIEWS.includes(raw.view as View) ? (raw.view as View) : VIEWS[0];
 
-  return { panes, focus, slots };
+  return { view, panes, focus, slots };
 }

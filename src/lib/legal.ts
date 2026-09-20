@@ -129,7 +129,8 @@ export type DataSource = {
 export const SOURCES: readonly DataSource[] = [
   {
     name: "Binance",
-    purpose: "Candlestick history, 24h stats, and the live price stream.",
+    purpose:
+      "Candlestick history (the market view reads this one from your browser), 24h stats, and the live price stream.",
     hosts: ["data-api.binance.vision", "api.binance.com", "data-stream.binance.vision"],
     site: "https://www.binance.com/",
     terms: null,

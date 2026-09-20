@@ -75,6 +75,24 @@ export const POLL_MS = {
  */
 export const EXTRA_PANE_MS = 120_000;
 
+/**
+ * How often the market overview re-reads every market's history.
+ *
+ * Deliberately not in `POLL_MS`, for a stronger version of the reason
+ * `EXTRA_PANE_MS` is not: this one does not spend Worker requests at all. The
+ * view asks the venue directly from the browser (see `fetchOverviewCandles`),
+ * so it is absent from the per-day arithmetic rather than cheap inside it — a
+ * `POLL_MS` entry would make the documented cost of one chart wrong by a
+ * request every five minutes that nothing ever sends.
+ *
+ * Five minutes is a bandwidth decision, not a quota one. Twenty-four markets at
+ * a hundred-odd bars each is a few hundred kilobytes per refresh, and it is
+ * spent on the visitor's connection, so the question is what they would wait
+ * for. The lines only move when a fifteen-minute bar closes anyway: refreshing
+ * faster would re-fetch identical numbers.
+ */
+export const OVERVIEW_MS = 300_000;
+
 /** Cloudflare Workers Free plan allowance, per day, resetting at 00:00 UTC. */
 export const WORKERS_FREE_REQUESTS_PER_DAY = 100_000;
 

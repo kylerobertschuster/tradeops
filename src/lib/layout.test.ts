@@ -68,6 +68,7 @@ describe("sanitizeLayout", () => {
 
   it("keeps a layout that is intact", () => {
     const saved = {
+      view: "market",
       panes: 4,
       focus: 2,
       slots: [
@@ -77,7 +78,16 @@ describe("sanitizeLayout", () => {
         { symbol: "AVAXUSDT", interval: "1w" },
       ],
     };
+    // Nothing removed and nothing added: the market view is part of the state,
+    // so a layout stored in it has to survive a reload in it.
     expect(sanitizeLayout(saved)).toEqual(saved);
+  });
+
+  it("opens on the charts when the stored view is missing or unknown", () => {
+    for (const view of [undefined, null, "Market", "grid", 4, {}, []]) {
+      expect(sanitizeLayout({ view }).view).toBe("charts");
+    }
+    expect(sanitizeLayout({ view: "market" }).view).toBe("market");
   });
 
   it("refuses a pane count that is not one of the layouts", () => {

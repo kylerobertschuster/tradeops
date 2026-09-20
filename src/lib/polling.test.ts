@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   EXTRA_PANE_MS,
+  OVERVIEW_MS,
   POLL_MS,
   WORKERS_FREE_REQUESTS_PER_DAY,
   candlePollMs,
@@ -156,6 +157,24 @@ describe("startVisiblePolling", () => {
 
     stop();
     expect(listenerCount()).toBe(0);
+  });
+});
+
+/**
+ * The market view fetches from the browser, not from the Worker. That makes it
+ * the one cadence that must *not* be in `POLL_MS`: the ceiling printed in the
+ * README is the cost of the requests one tab sends here, and a browser-direct
+ * fetch added to it would inflate the promise or, worse, hide a real cost the
+ * other way. The test asserts the exclusion rather than the number.
+ */
+describe("the market overview's cadence", () => {
+  it("stays out of the Worker's per-day arithmetic, because it sends no request to the Worker", () => {
+    expect(Object.values(POLL_MS)).not.toContain(OVERVIEW_MS);
+    expect(OVERVIEW_MS).toBeGreaterThan(EXTRA_PANE_MS);
+  });
+
+  it("cannot be cheaper than a chart's own history, or it would be the same request", () => {
+    expect(OVERVIEW_MS).toBeGreaterThanOrEqual(POLL_MS.venues);
   });
 });
 

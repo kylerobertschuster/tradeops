@@ -5,7 +5,7 @@ import SymbolSearch from "./SymbolSearch";
 import type { Interval } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { formatUsd, formatPct } from "@/lib/format";
-import { PANE_COUNTS, type PaneCount } from "@/lib/layout";
+import { PANE_COUNTS, type PaneCount, type View } from "@/lib/layout";
 import { SUPPORT_LINKS } from "@/lib/legal";
 
 const LABELS: Record<Interval, string> = {
@@ -37,6 +37,9 @@ type Props = {
   /** How many charts the layout shows, and how to change that. */
   panes: PaneCount;
   onPanes: (panes: PaneCount) => void;
+  /** Whether the charts or the market view is on screen, and how to switch. */
+  view: View;
+  onView: (view: View) => void;
   onSelectSymbol: (symbol: string) => void;
 };
 
@@ -45,6 +48,8 @@ export default function TopBar({
   onInterval,
   panes,
   onPanes,
+  view,
+  onView,
   equity,
   pnl,
   pnlPct,
@@ -114,11 +119,11 @@ export default function TopBar({
           <button
             key={count}
             onClick={() => onPanes(count)}
-            aria-pressed={panes === count}
+            aria-pressed={view === "charts" && panes === count}
             title={PANE_LABELS[count]}
             aria-label={PANE_LABELS[count]}
             className={`rounded p-1 transition-colors ${
-              panes === count
+              view === "charts" && panes === count
                 ? "bg-tv-accent text-white"
                 : "text-tv-muted hover:bg-tv-panel2 hover:text-tv-text"
             }`}
@@ -127,6 +132,25 @@ export default function TopBar({
           </button>
         ))}
       </nav>
+
+      {/*
+       * The other answer to "how much market do you want on screen": every
+       * market on one axis, rebased to percent change. A layout shows one
+       * market up to four ways — which is why this is a button beside them and
+       * not a fourth layout count.
+       */}
+      <button
+        onClick={() => onView(view === "market" ? "charts" : "market")}
+        aria-pressed={view === "market"}
+        title="Every market on one chart, each rebased to percent change"
+        className={`shrink-0 rounded border border-tv-border px-1.5 py-1 text-[11px] transition-colors ${
+          view === "market"
+            ? "bg-tv-accent text-white"
+            : "text-tv-muted hover:bg-tv-panel2 hover:text-tv-text"
+        }`}
+      >
+        Market
+      </button>
 
       <div className="hidden lg:block lg:flex-1" />
 

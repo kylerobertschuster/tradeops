@@ -28,8 +28,8 @@ export default function PrivacyPage() {
           </li>
           <li>No cookies, no analytics, no tracking pixels, no advertising, no data sales.</li>
           <li>
-            One connection is made straight from your browser to Binance, for the live price stream.
-            Details below — it is the only one.
+            Your browser connects straight to Binance for two things: the live price stream, and the
+            candle history behind the market view. Those are the only ones — details below.
           </li>
         </ul>
       </div>
@@ -100,19 +100,32 @@ export default function PrivacyPage() {
         anything: nobody else can see it, including us.
       </p>
 
-      <h2>4. The one connection your browser makes directly</h2>
+      <h2>4. The connections your browser makes directly</h2>
       <p>
         Live prices arrive over a WebSocket that your browser opens directly to{" "}
         <code>wss://data-stream.binance.vision</code>. That is deliberate — it is what makes prices
         tick without spending a server request for every update — but it means{" "}
         <strong>Binance sees your IP address</strong> for as long as the stream is open, along with
         the list of symbols you are watching. Binance&rsquo;s own privacy policy, not this one,
-        governs that connection. It is the only third party that receives your IP from this app.
+        governs that connection.
       </p>
       <p>
-        Everything else — candles, 24-hour stats, on-chain data — is fetched by the server on your
-        behalf, so the exchanges and node operators see the server&rsquo;s address rather than yours.
-        It also means they never learn which symbols a particular person is looking at.
+        The market view — every market on one chart — makes a second kind of request directly to{" "}
+        <code>https://data-api.binance.vision</code>: the candle history behind each line. Reading
+        twenty-four markets at once through this deployment would be twenty-four upstream requests
+        for one page view, so the browser asks the venue itself, and Binance sees your IP address and
+        the symbols on that chart. The candles are drawn and dropped; this app stores nothing from
+        them, and the only copy is the tab&rsquo;s own memory until you close it.
+      </p>
+      <p>
+        Those two are the only third parties that receive your IP address from this app, and both are
+        listed with what they supply on <a href="/legal/sources">Data Sources</a>.
+      </p>
+      <p>
+        Everything else — the charts&rsquo; own candles, 24-hour stats, on-chain data — is fetched by
+        the server on your behalf, so those exchanges and node operators see the server&rsquo;s
+        address rather than yours. It also means they never learn which symbols a particular person
+        is looking at.
       </p>
 
       <h2>5. No cookies, no analytics, no trackers</h2>
@@ -124,8 +137,9 @@ export default function PrivacyPage() {
       </p>
       <p>
         The fonts are downloaded when the site is built and served from this site, so loading a page
-        makes no request to Google or to any font service. The only third-party request your browser
-        makes is the price stream described above.
+        makes no request to Google or to any font service. The only third-party requests your browser
+        makes are the two described above: the price stream, and the candle history the market view
+        reads for itself.
       </p>
 
       <h2>6. Deleting it all</h2>

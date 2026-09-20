@@ -6,6 +6,7 @@ import Watchlist from "@/components/Watchlist";
 import ChartPanel from "@/components/ChartPanel";
 import RightPanel from "@/components/RightPanel";
 import MobileNav, { type Pane } from "@/components/MobileNav";
+import MarketOverview from "@/components/MarketOverview";
 import { fetchTickers } from "@/lib/api";
 import { createLiveFeed, type LiveFeed } from "@/lib/live";
 import { POLL_MS, startVisiblePolling } from "@/lib/polling";
@@ -30,6 +31,8 @@ export default function Home() {
   const panes = useLayoutStore((s) => s.panes);
   const focus = useLayoutStore((s) => s.focus);
   const slots = useLayoutStore((s) => s.slots);
+  const view = useLayoutStore((s) => s.view);
+  const setView = useLayoutStore((s) => s.setView);
   const setPanes = useLayoutStore((s) => s.setPanes);
   const setFocus = useLayoutStore((s) => s.setFocus);
   const setSymbol = useLayoutStore((s) => s.setSymbol);
@@ -174,6 +177,9 @@ export default function Home() {
   const selectSymbol = (next: string) => {
     setSymbol(next);
     setPane("chart");
+    // Including the market view's own links: a name there asks for that market's
+    // chart, so the click has to leave the view it was made in.
+    setView("charts");
   };
 
   return (
@@ -182,7 +188,14 @@ export default function Home() {
         interval={interval}
         onInterval={setIntervalState}
         panes={panes}
-        onPanes={setPanes}
+        onPanes={(next) => {
+          // A layout is a request to see charts, so it doubles as the way back
+          // from the market view — which is why it needs no separate toggle.
+          setPanes(next);
+          setView("charts");
+        }}
+        view={view}
+        onView={setView}
         equity={equity}
         pnl={pnl}
         pnlPct={pnlPct}
@@ -204,22 +217,35 @@ export default function Home() {
         <main
           className={`min-h-0 min-w-0 flex-1 flex-col ${paneClass("chart")}`}
         >
-          <div
-            className={`flex min-h-0 flex-1 flex-col gap-px overflow-y-auto bg-tv-border lg:grid lg:overflow-hidden ${gridClass[panes]}`}
-          >
-            {visible.map((slot, i) => (
-              <div key={i} className="flex h-[70vh] min-w-0 flex-col bg-tv-bg lg:h-auto lg:min-h-0">
-                <ChartPanel
-                  symbol={slot.symbol}
-                  interval={slot.interval}
-                  ticker={tickers[slot.symbol]}
-                  focused={panes === 1 || i === focus}
-                  framed={panes > 1}
-                  onFocus={panes > 1 ? () => setFocus(i) : undefined}
-                />
-              </div>
-            ))}
-          </div>
+          {/*
+           * One view or the other, never both mounted. The market view is a
+           * single chart of twenty-four markets read by the browser; the panes
+           * are up to four charts read through this deployment. Leaving the
+           * panes mounted behind the market view would keep four charts'
+           * polling and candle fetches running for something nobody is looking
+           * at, and every chart keeps its pair and timeframe in the store
+           * either way, so switching back is not a reset.
+           */}
+          {view === "market" ? (
+            <MarketOverview onOpen={selectSymbol} />
+          ) : (
+            <div
+              className={`flex min-h-0 flex-1 flex-col gap-px overflow-y-auto bg-tv-border lg:grid lg:overflow-hidden ${gridClass[panes]}`}
+            >
+              {visible.map((slot, i) => (
+                <div key={i} className="flex h-[70vh] min-w-0 flex-col bg-tv-bg lg:h-auto lg:min-h-0">
+                  <ChartPanel
+                    symbol={slot.symbol}
+                    interval={slot.interval}
+                    ticker={tickers[slot.symbol]}
+                    focused={panes === 1 || i === focus}
+                    framed={panes > 1}
+                    onFocus={panes > 1 ? () => setFocus(i) : undefined}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </main>
         <div
           className={`min-h-0 flex-1 flex-col lg:w-80 lg:flex-none ${paneClass("trade")}`}

@@ -9,6 +9,10 @@ import type { VenuesResponse } from "./venues";
 // holders. `holders.ts` depends only on the token list and the fetch helper,
 // so this pulls no server-side market data into the client bundle.
 import { BLOCKSCOUT_BASE, fetchHolderStats } from "./holders";
+// Browser-direct market history for the market overview. `overview.ts` imports
+// only types and the symbol catalogue, so this pulls no server code — and no
+// server-only env — into the client bundle.
+import { BINANCE_DIRECT, parseBinanceCandles } from "./overview";
 
 export type { WhaleTransfer, HolderStats, VenuesResponse };
 
@@ -108,4 +112,40 @@ export async function fetchHolders(symbol: string): Promise<HolderStats | null> 
   const res = await fetch(`/api/holders?symbol=${encodeURIComponent(symbol)}`);
   if (!res.ok) return null;
   return (await res.json()) as HolderStats;
+}
+
+/**
+ * Candle history for one market, asked of the venue by the browser itself.
+ *
+ * This is the one fetcher here that does not call our own Worker, and the
+ * omission is the point. The market overview reads twenty-four markets at once,
+ * and each market is a separate upstream request: served through a route of
+ * ours, one page load would fan out into twenty-four subrequests on the
+ * tightest limit in the deployment. The browser has its own connection and its
+ * own allowance, and the venue serves this endpoint with
+ * `access-control-allow-origin: *` — so the Worker never sees the request, and
+ * the free-tier budget is spent by the charts rather than by the overview.
+ *
+ * What that costs is the visitor's bandwidth, which is why it is measured in
+ * hundreds of kilobytes every few minutes rather than in requests.
+ *
+ * A market the venue will not serve rejects, and the caller treats a rejection
+ * as "no history for this market" rather than retrying: the overview is a
+ * glance at everything, and one unlisted pair must not hold up the other
+ * twenty-three. `parseBinanceCandles` is the same reading of the same payload
+ * the Worker does, kept in the pure module so it can be tested without a
+ * network.
+ */
+export async function fetchOverviewCandles(
+  symbol: string,
+  interval: Interval,
+  bars: number,
+): Promise<Candle[]> {
+  // Our interval names are Binance's own codes — `BINANCE_IV` in `market.ts` is
+  // the identity — so nothing is translated here, and a divergence would be a
+  // type error rather than a silent 400.
+  const url = `${BINANCE_DIRECT}/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${bars}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`market data host answered ${res.status} for ${symbol}`);
+  return parseBinanceCandles((await res.json()) as unknown);
 }
