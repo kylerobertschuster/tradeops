@@ -37,7 +37,7 @@ Done:
   requests/day, **under** the 13,680 single-chart ceiling. `tradeops-layout-v1`
   joined `BROWSER_STORAGE_KEYS`, and the privacy page's hard-coded "two things"
   became a sentence with no count in it — the list below it is the list.
-- **Market view (2026-09-18).** Every market on one chart, which is the one
+- **Market view (2026-09-20).** Every market on one chart, which is the one
   question a multi-chart layout cannot answer: two charts have two price axes.
   `src/lib/overview.ts` rebases each series to percent change from the window's
   first close — the first point is exactly 0 by construction, and the vertical
@@ -233,7 +233,7 @@ Launch readiness first, then features:
      2026-09-18** — the panes landed; unlimited indicators were already there
      (all nine toggles run at once).
   2. Market view — every market on one chart, rebased to percent change. **Done
-     2026-09-18** (shipped with the layout work, since both are answers to "how
+     2026-09-20** (shipped with the layout work, since both are answers to "how
      much market do you want on screen"). Still to come on top of it, in the
      order the operator asked for them: a **colour-by-strength** mode that
      recolours the lines by their move against the median (identity moves to
