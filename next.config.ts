@@ -9,8 +9,17 @@ import type { NextConfig } from "next";
  * not worth trading away static generation for this app yet.
  *
  * Even with that allowance the policy earns its keep: it pins `connect-src` to
- * our own origin plus the one websocket host, and blocks plugin content,
- * base-tag hijacking, and framing.
+ * our own origin plus the hosts the browser is told to call, and blocks plugin
+ * content, base-tag hijacking, and framing.
+ *
+ * That allowlist is the one directive that is easy to get wrong, because it is
+ * *enforced by the browser* and not by any code path we can see: a fetch to an
+ * origin missing here fails at runtime with a console error and nothing else.
+ * It happened twice — the market view's candle host and BlockScout both went
+ * missing, and the latter hid behind a server fallback for two days. So
+ * `src/lib/csp.test.ts` now reads this policy and asserts it allows every
+ * origin the client modules call, which is the version of this comment that
+ * fails a build instead of a page.
  */
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -32,12 +41,14 @@ const CSP = [
   // next/font self-hosts its files, so no external font origins are needed.
   "font-src 'self' data:",
   "img-src 'self' data: blob:",
-  // Our own API routes, plus Binance's public market-data websocket. Live
-  // prices and candles stream from the exchange straight to the browser, so
-  // they cost nothing against the Worker's request quota. Without this origin
-  // in the allowlist the socket is refused and the app silently falls back to
-  // REST polling.
-  "connect-src 'self' wss://data-stream.binance.vision",
+  // Our own API routes, plus every origin the browser calls itself. Live prices
+  // and candles stream from the exchange straight to the browser, so they cost
+  // nothing against the Worker's request quota — and the market view reads its
+  // twenty-four markets from the REST host for the same reason. Without an
+  // origin here the fetch is refused and whatever asked for it degrades
+  // silently, so `src/lib/csp.test.ts` pins this list against the constants the
+  // client modules export.
+  "connect-src 'self' wss://data-stream.binance.vision https://data-api.binance.vision https://eth.blockscout.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
