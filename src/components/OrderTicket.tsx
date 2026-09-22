@@ -28,11 +28,18 @@ export default function OrderTicket({ symbol, base, price }: Props) {
   const fee = notional * FEE_RATE;
 
   // Buying power is the balance *less the taker fee*, because the fee is
-  // charged on top of the order. Sizing a 100% buy off raw cash produces an
-  // order whose total is cash x 1.001, which is rejected as insufficient — so
-  // the Max button could never succeed.
-  const available =
-    side === "buy" ? cash / (1 + FEE_RATE) : (position?.qty ?? 0) * mark;
+  // charged on top of the order. `maxNotional` owns that rule, so the Max
+  // button and the store's balance check cannot drift apart.
+  //
+  // The inlined copy that used to live here was *not* failing, and it is worth
+  // recording why: a 100% buy overshoots the balance by ~1.5e-11, while
+  // `marketBuy` allows a 1e-6 tolerance — more than four orders of magnitude of
+  // slack. So this is a de-duplication, not a rescue. What the inline copy did
+  // lack is the floor to 1e-8, which parks the max buy ~1e-8 *below* the balance instead of
+  // ~1e-11 above it. If the tolerance ever tightens, that floor is the reason
+  // this keeps working — and if it ever looks removable, this is the note that
+  // says it is not.
+  const available = maxNotional(side, cash, position?.qty ?? 0, mark);
 
   const pctOptions = useMemo(() => [0.25, 0.5, 0.75, 1], []);
 
