@@ -38,21 +38,23 @@ export const GOVERNING_LAW: string | null = null;
 /**
  * Where someone who wants to fund the project can do it.
  *
- * Empty, and empty is the honest state for two separate reasons. This repository
- * is also a template that other people run, and a funding link belongs to
- * whoever pays the hosting bill rather than to the code. And a link whose page
- * does not exist is worse than no link at all: listing an address nobody has
- * published yet is the same class of lie as inventing a jurisdiction, so nothing
- * is listed here until the destination has been fetched and has answered.
- * `npm run check:support` does that fetching and prints a paste-ready array of
- * the links that resolved.
+ * A link is listed only after its page has been fetched and has answered,
+ * because a link whose page does not exist is worse than no link at all:
+ * listing an address nobody has published yet is the same class of lie as
+ * inventing a jurisdiction. `npm run check:support` is the fetching half of that
+ * rule — it probes this list and the addresses the deployment intends to use,
+ * and prints a paste-ready array of the links that resolved.
  *
- * Empty does not mean hidden. The support section of the legal index still
- * renders, so a reader looking for a way to give finds the answer rather than a
- * gap: it says this deployment accepts no donations, the same sentence section 8
- * of the terms uses in the same state. The top bar's Support link is the one
- * piece that does disappear, because a link carried on every screen has to lead
- * somewhere worth going.
+ * If this list is ever emptied, the site stays honest rather than gaping. The
+ * support section of the legal index still renders, so a reader looking for a
+ * way to give finds the answer instead of a hole: it says this deployment
+ * accepts no donations, the same sentence section 8 of the terms uses in the
+ * same state. The top bar's Support link is the one piece that does disappear,
+ * because a link carried on every screen has to lead somewhere worth going.
+ *
+ * This repository is also a template that other people run, and a funding link
+ * belongs to whoever pays the hosting bill rather than to the code: a fork
+ * should replace these with its own handles rather than inherit someone else's.
  *
  * Two rules apply to anything added here, and `legal.test.ts` enforces both:
  * the address is https, and its host is in `LINK_ONLY_HOSTS` below, because a
@@ -67,7 +69,21 @@ export type SupportLink = {
   note: string;
 };
 
-export const SUPPORT_LINKS: readonly SupportLink[] = [];
+export const SUPPORT_LINKS: readonly SupportLink[] = [
+  {
+    name: "Buy Me a Coffee",
+    url: "https://buymeacoffee.com/kylerobertschuster",
+    // "No account required" is Buy Me a Coffee's own published statement about
+    // its one-time flow, not an assumption about it. Their knowledge base puts
+    // it four ways: "Send one-time support with no sign-up required", "One-time
+    // support can be sent without creating an account", "no account needed",
+    // and "No login required for one-time support". An account is needed only to
+    // join a membership — which is why the note says "one-off" rather than a
+    // bare "no account", and why the claim survives a reader landing on a page
+    // that also offers memberships. Checked against the live checkout 2026-09-22.
+    note: "One-off, no account required.",
+  },
+];
 
 /**
  * Everything this app persists in the user's browser, and nothing else.
