@@ -22,7 +22,7 @@ export const ISSUES_URL = `${REPO_URL}/issues`;
  * The terms say that continued use after a change means acceptance, which is
  * only an honest sentence if this date moves when the wording does.
  */
-export const LAST_UPDATED = "2026-09-18";
+export const LAST_UPDATED = "2026-09-22";
 
 /**
  * The law the terms are read under.

@@ -1,6 +1,6 @@
 {
   "name": "trade-ops",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "license": "MIT",
   "description": "Free, keyless on-chain analytics, multi-venue market data and paper trading in the browser.",
